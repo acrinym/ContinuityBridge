@@ -1,6 +1,19 @@
+ContinuityBridge
+Copyright (c) 2026 Justin Gargano
+
+This project interoperates with and includes a small compatible implementation
+of the normalized message-ID algorithm published by Lore:
+
+Lore
+Copyright (c) 2026 Jordan Hindo
+https://github.com/jordanhindo/lore
+Licensed under the MIT License.
+
+The full Lore MIT license text is reproduced below:
+
 MIT License
 
-Copyright (c) 2026 Justin Gargano
+Copyright (c) 2026 Jordan Hindo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
