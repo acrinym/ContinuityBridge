@@ -1,0 +1,46 @@
+{
+  "name": "@acrinym/continuity-bridge",
+  "version": "0.1.0",
+  "description": "Local-first bridge that makes ChatGPT conversations searchable by Codex, Claude Code, Cursor, and any Lore/MCP client—without API credits.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Justin Gargano",
+  "homepage": "https://github.com/acrinym/ContinuityBridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acrinym/ContinuityBridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/acrinym/ContinuityBridge/issues"
+  },
+  "keywords": [
+    "chatgpt",
+    "codex",
+    "lore",
+    "ai-memory",
+    "continuity",
+    "mcp",
+    "local-first",
+    "conversation-history"
+  ],
+  "bin": {
+    "continuity-bridge": "bin/continuity-bridge.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/continuity-bridge.js && node --check src/cli.js && node --test",
+    "smoke": "node bin/continuity-bridge.js import-chatgpt test/fixtures/chatgpt-export --dry-run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ]
+}
