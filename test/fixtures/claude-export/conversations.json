@@ -1,0 +1,48 @@
+[
+  {
+    "uuid": "claude-conversation-alpha",
+    "name": "Desktop bridge planning",
+    "created_at": "2026-07-30T12:00:00Z",
+    "updated_at": "2026-07-30T12:03:00Z",
+    "chat_messages": [
+      {
+        "uuid": "claude-human-1",
+        "sender": "human",
+        "created_at": "2026-07-30T12:00:00Z",
+        "text": "Build a local desktop importer. password=example-secret"
+      },
+      {
+        "uuid": "claude-assistant-1",
+        "sender": "assistant",
+        "created_at": "2026-07-30T12:01:00Z",
+        "content": [
+          {"type": "text", "text": "Use a provider adapter and preserve source provenance."},
+          {"type": "document", "file_name": "architecture.md", "mime_type": "text/markdown", "file_id": "private-file-id"}
+        ],
+        "model": "claude-example"
+      },
+      {
+        "uuid": "claude-human-2",
+        "sender": "human",
+        "created_at": "2026-07-30T12:02:00Z",
+        "attachments": [
+          {"file_name": "sample.json", "mime_type": "application/json", "download_url": "https://example.invalid/signed"}
+        ],
+        "text": "Make the preview searchable."
+      }
+    ]
+  },
+  {
+    "uuid": "claude-conversation-beta",
+    "name": "Second conversation",
+    "created_at": "2026-07-31T08:00:00Z",
+    "chat_messages": [
+      {
+        "uuid": "claude-human-beta",
+        "sender": "human",
+        "created_at": "2026-07-31T08:00:00Z",
+        "content": [{"type": "text", "text": "Keep this conversation searchable."}]
+      }
+    ]
+  }
+]
