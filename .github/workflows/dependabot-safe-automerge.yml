@@ -56,7 +56,7 @@ jobs:
               ;;
           esac
 
-      - name: Verify changed-file boundary
+      - name: Verify changed-file and workflow-diff boundaries
         if: steps.policy.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,11 +65,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t files < <(
-            gh api --paginate \
+          files_json="$(
+            gh api --method GET \
               "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-              --jq '.[].filename'
-          )
+              -f per_page=100
+          )"
+          mapfile -t files < <(jq -r '.[].filename' <<< "$files_json")
 
           if (( ${#files[@]} == 0 )); then
             echo "Dependabot PR contains no changed files." >&2
@@ -83,6 +84,31 @@ jobs:
               desktop/pyproject.toml|desktop/requirements*.txt|desktop/poetry.lock|desktop/uv.lock)
                 ;;
               .github/workflows/*.yml|.github/workflows/*.yaml)
+                patch="$(
+                  jq -r --arg file "$file" \
+                    '.[] | select(.filename == $file) | .patch // ""' \
+                    <<< "$files_json"
+                )"
+
+                if [[ -z "$patch" ]]; then
+                  echo "Refusing workflow update without an inspectable patch: '$file'." >&2
+                  exit 1
+                fi
+
+                while IFS= read -r line; do
+                  case "$line" in
+                    '+++'*|'---'*|'@@'*)
+                      ;;
+                    +*|-*)
+                      changed="${line:1}"
+                      if [[ ! "$changed" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+[^[:space:]]+@[^[:space:]]+([[:space:]]+\#.*)?$ ]]; then
+                        echo "Refusing workflow update because this changed line is not an action reference:" >&2
+                        echo "$line" >&2
+                        exit 1
+                      fi
+                      ;;
+                  esac
+                done <<< "$patch"
                 ;;
               *)
                 echo "Refusing automatic merge because '$file' is outside the dependency boundary." >&2
