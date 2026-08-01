@@ -1,0 +1,183 @@
+name: Dependabot safe auto-merge
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  safe-update:
+    if: >-
+      github.repository == 'acrinym/ContinuityBridge' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # This privileged workflow deliberately never checks out or executes PR code.
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply update policy
+        id: policy
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCIES: ${{ steps.metadata.outputs.dependency-names }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor)
+              echo "eligible=true" >> "$GITHUB_OUTPUT"
+              echo "### Dependabot policy: eligible" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Dependencies: $DEPENDENCIES" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Update type: $UPDATE_TYPE" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+              echo "### Dependabot policy: manual review required" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Dependencies: $DEPENDENCIES" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Update type: $UPDATE_TYPE" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
+
+      - name: Verify changed-file boundary
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+              --jq '.[].filename'
+          )
+
+          if (( ${#files[@]} == 0 )); then
+            echo "Dependabot PR contains no changed files." >&2
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            case "$file" in
+              package.json|package-lock.json|npm-shrinkwrap.json)
+                ;;
+              desktop/pyproject.toml|desktop/requirements*.txt|desktop/poetry.lock|desktop/uv.lock)
+                ;;
+              .github/workflows/*.yml|.github/workflows/*.yaml)
+                ;;
+              *)
+                echo "Refusing automatic merge because '$file' is outside the dependency boundary." >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          printf '%s\n' "${files[@]}" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for CI on the exact Dependabot commit
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 90); do
+            current_sha="$(
+              gh pr view "$PR_NUMBER" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json headRefOid \
+                --jq '.headRefOid'
+            )"
+
+            if [[ "$current_sha" != "$HEAD_SHA" ]]; then
+              echo "Dependabot PR head changed while policy was running; a new run will evaluate it." >&2
+              exit 1
+            fi
+
+            runs="$(
+              gh api --method GET \
+                "repos/${GITHUB_REPOSITORY}/actions/runs" \
+                -f head_sha="$HEAD_SHA" \
+                -f event="pull_request" \
+                -f per_page=100
+            )"
+
+            ci_run="$(
+              jq -c '[.workflow_runs[] | select(.name == "CI")] | sort_by(.created_at) | last // empty' \
+                <<< "$runs"
+            )"
+
+            if [[ -z "$ci_run" ]]; then
+              sleep 10
+              continue
+            fi
+
+            status="$(jq -r '.status' <<< "$ci_run")"
+            conclusion="$(jq -r '.conclusion // ""' <<< "$ci_run")"
+
+            if [[ "$status" != "completed" ]]; then
+              sleep 10
+              continue
+            fi
+
+            if [[ "$conclusion" != "success" ]]; then
+              echo "CI completed with conclusion '$conclusion'; automatic merge refused." >&2
+              exit 1
+            fi
+
+            echo "CI passed for $HEAD_SHA." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          done
+
+          echo "Timed out waiting for CI on $HEAD_SHA." >&2
+          exit 1
+
+      - name: Approve safe update when repository settings permit
+        if: steps.policy.outputs.eligible == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          gh pr review "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --approve \
+            --body "Automated policy approval: safe Dependabot update with green CI."
+
+      - name: Squash-merge safe update
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --squash \
+            --delete-branch \
+            --match-head-commit "$HEAD_SHA"
