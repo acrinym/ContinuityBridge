@@ -9,4 +9,6 @@ ContinuityBridge is a public, local-first interoperability project.
 - Preserve compatibility through Lore's public normalized-record and `push` contracts rather than writing Lore's SQLite tables directly.
 - Keep provider adapters independent from the shared store and keep the desktop GUI on the public CLI contract.
 - Any code extracted from a private utility must be rebuilt around generic public concepts. Do not copy private profiles, classifiers, archives, specialized datasets, personal names, or private fixtures.
+- Dependabot patch/minor updates may merge automatically only through the guarded dependency workflow. Major updates and unexpected file changes require human review.
+- Privileged GitHub Actions workflows must never check out or execute pull-request code.
 - Run `npm run check`, `npm run smoke`, and `npm run check:desktop` before publishing changes.
