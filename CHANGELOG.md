@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Dependency maintenance
+
+- Added weekly Dependabot update lanes for npm, desktop Python, and GitHub Actions.
+- Added grouped patch/minor updates while leaving major releases for human review.
+- Added guarded squash auto-merge after exact-head CI success and dependency-only file validation.
+- Added a privileged-workflow safety test and operating documentation.
+
 ## 0.2.0 — Train 2
 
 - Added an installable Tkinter desktop application for browsing, searching, previewing, and selectively importing conversations.
