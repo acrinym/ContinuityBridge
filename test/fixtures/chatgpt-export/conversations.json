@@ -1,0 +1,83 @@
+[
+  {
+    "id": "conversation-alpha",
+    "title": "Authentication redesign",
+    "create_time": 1767225600,
+    "update_time": 1767225660,
+    "mapping": {
+      "root": {
+        "id": "root",
+        "parent": null,
+        "children": ["user-1"],
+        "message": null
+      },
+      "user-1": {
+        "id": "user-1",
+        "parent": "root",
+        "children": ["assistant-1", "assistant-branch"],
+        "message": {
+          "id": "message-user-1",
+          "author": { "role": "user" },
+          "create_time": 1767225601,
+          "content": { "content_type": "text", "parts": ["Design a passwordless login flow."] },
+          "metadata": {}
+        }
+      },
+      "assistant-1": {
+        "id": "assistant-1",
+        "parent": "user-1",
+        "children": ["tool-1"],
+        "message": {
+          "id": "message-assistant-1",
+          "author": { "role": "assistant" },
+          "create_time": 1767225602,
+          "content": { "content_type": "text", "parts": ["Use passkeys first, with recovery codes."] },
+          "metadata": { "model_slug": "gpt-test" }
+        }
+      },
+      "tool-1": {
+        "id": "tool-1",
+        "parent": "assistant-1",
+        "children": [],
+        "message": {
+          "id": "message-tool-1",
+          "author": { "role": "tool" },
+          "create_time": 1767225603,
+          "content": { "content_type": "text", "parts": [{ "name": "diagram.png", "mime_type": "image/png", "asset_pointer": "secret-pointer" }] },
+          "metadata": {}
+        }
+      },
+      "assistant-branch": {
+        "id": "assistant-branch",
+        "parent": "user-1",
+        "children": [],
+        "message": {
+          "id": "message-assistant-branch",
+          "author": { "role": "assistant" },
+          "create_time": 1767225610,
+          "content": { "content_type": "text", "parts": ["Alternative branch: use magic links."] },
+          "metadata": {}
+        }
+      }
+    }
+  },
+  {
+    "id": "conversation-secret",
+    "title": "Credential cleanup",
+    "create_time": 1767225700,
+    "mapping": {
+      "user": {
+        "id": "user",
+        "parent": null,
+        "children": [],
+        "message": {
+          "id": "secret-message",
+          "author": { "role": "user" },
+          "create_time": 1767225701,
+          "content": { "content_type": "text", "parts": ["My key is sk-proj-abcdefghijklmnopqrstuvwx and password=supersecretvalue."] },
+          "metadata": {}
+        }
+      }
+    }
+  }
+]
