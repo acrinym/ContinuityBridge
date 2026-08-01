@@ -10,7 +10,15 @@ dist/
 *.zip
 chatgpt-export*/
 conversations.json
+!test/fixtures/**/conversations.json
 .DS_Store
 .env
 .env.*
 !.env.example
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/

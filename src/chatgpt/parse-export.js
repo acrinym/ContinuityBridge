@@ -91,11 +91,15 @@ function titleSlug(value) {
   return slug || "untitled";
 }
 
-function conversationId(conversation, index) {
+export function chatGptConversationId(conversation, _index = 0) {
   return String(
     conversation.id ??
       conversation.conversation_id ??
-      sha256(`${conversation.title ?? "untitled"}\u0000${conversation.create_time ?? index}`),
+      sha256(
+        `${conversation.title ?? "untitled"}\u0000${
+          conversation.create_time ?? conversation.update_time ?? JSON.stringify(conversation.mapping ?? {})
+        }`,
+      ),
   );
 }
 
@@ -137,8 +141,6 @@ export async function readChatGptConversations(paths) {
         continue;
       }
 
-      // If an export contains the same conversation in more than one numbered
-      // file, retain the newest copy rather than importing duplicate sessions.
       const existingIndex = indexById.get(String(id));
       const existing = merged[existingIndex];
       const existingTime = timestampValue({
@@ -155,7 +157,7 @@ export async function readChatGptConversations(paths) {
 }
 
 export function conversationToLoreBatch(conversation, options = {}, index = 0) {
-  const id = conversationId(conversation, index);
+  const id = chatGptConversationId(conversation, index);
   const source = options.source ?? "chatgpt";
   const sourceFileId = `${source}:${id}`;
   const sessionId = sourceFileId;
@@ -220,4 +222,26 @@ export function toLoreBatches(conversations, options = {}) {
   return conversations
     .map((conversation, index) => conversationToLoreBatch(conversation, options, index))
     .filter((batch) => batch.messages.length > 0);
+}
+
+export function summarizeChatGptConversations(conversations, options = {}) {
+  return conversations.map((conversation, index) => {
+    const batch = conversationToLoreBatch(conversation, options, index);
+    const first = batch.messages[0]?.timestamp ?? null;
+    const last = batch.messages.at(-1)?.timestamp ?? null;
+    const preview = batch.messages
+      .slice(0, 6)
+      .map((message) => `${message.role}: ${message.text}`)
+      .join("\n\n")
+      .slice(0, 4_000);
+    return {
+      id: chatGptConversationId(conversation, index),
+      title: String(conversation.title ?? "Untitled conversation"),
+      provider: "chatgpt",
+      messageCount: batch.messages.length,
+      createdAt: toIso(conversation.create_time) ?? first,
+      updatedAt: toIso(conversation.update_time) ?? last,
+      preview,
+    };
+  });
 }

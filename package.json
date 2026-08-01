@@ -1,7 +1,7 @@
 {
   "name": "@acrinym/continuity-bridge",
-  "version": "0.1.0",
-  "description": "Local-first bridge that makes ChatGPT conversations searchable by Codex, Claude Code, Cursor, and any Lore/MCP client—without API credits.",
+  "version": "0.2.0",
+  "description": "Local-first desktop and CLI bridge that makes ChatGPT and Claude conversations searchable by Codex and any Lore/MCP client—without API credits.",
   "type": "module",
   "license": "MIT",
   "author": "Justin Gargano",
@@ -15,6 +15,7 @@
   },
   "keywords": [
     "chatgpt",
+    "claude",
     "codex",
     "lore",
     "ai-memory",
@@ -29,7 +30,9 @@
   "scripts": {
     "test": "node --test",
     "check": "node --check bin/continuity-bridge.js && node --check src/cli.js && node --test",
-    "smoke": "node bin/continuity-bridge.js import-chatgpt test/fixtures/chatgpt-export --dry-run"
+    "smoke": "node bin/continuity-bridge.js import-chatgpt test/fixtures/chatgpt-export --dry-run && node bin/continuity-bridge.js import-claude test/fixtures/claude-export --dry-run",
+    "test:desktop": "python -m unittest discover -s desktop/tests -v",
+    "check:desktop": "python -m py_compile desktop/continuity_bridge_desktop/client.py desktop/continuity_bridge_desktop/app.py desktop/continuity_bridge_gui.py && python -m unittest discover -s desktop/tests -v"
   },
   "engines": {
     "node": ">=22"
@@ -37,6 +40,10 @@
   "files": [
     "bin",
     "src",
+    "desktop/continuity_bridge_desktop",
+    "desktop/continuity_bridge_gui.py",
+    "desktop/pyproject.toml",
+    "desktop/README.md",
     "docs",
     "README.md",
     "LICENSE",

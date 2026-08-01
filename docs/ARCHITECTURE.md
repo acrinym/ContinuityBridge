@@ -2,77 +2,82 @@
 
 ## Purpose
 
-ContinuityBridge translates conversational history from chat products into a source-neutral record contract. It does not replace the memory store. Lore remains responsible for durable local storage, full-text search, retrieval, deletion, exclusions, CLI access, and MCP access.
+ContinuityBridge translates conversation history from chat products into a source-neutral record contract. It does not replace the memory store. Lore remains responsible for durable local storage, full-text search, retrieval, deletion, exclusions, CLI access, and MCP access.
 
-## Train 1 data path
+## Data path
 
 ```text
-ZIP / directory / conversations.json
-                │
-                ▼
-        export resolver
-                │
-                ▼
-       ChatGPT tree parser
-                │
-                ▼
-    privacy scrub + size bound
-                │
-                ▼
-      Lore-normalized batches
-          │             │
-          ▼             ▼
-     JSONL archive    lore push
-                           │
-                           ▼
-                    ~/.lore/lore.db
+ChatGPT / Claude ZIP, folder, or JSON
+                  │
+                  ▼
+          provider resolver
+                  │
+                  ▼
+          provider parser
+                  │
+          ┌───────┴────────┐
+          ▼                ▼
+ redacted inspection   normalized batches
+          │                │
+          ▼          ┌─────┴─────┐
+  Desktop browser    ▼           ▼
+                  JSONL       lore push
+                                  │
+                                  ▼
+                           ~/.lore/lore.db
 ```
+
+## Provider contract
+
+A provider adapter implements:
+
+1. export resolution from ZIP, directory, or JSON;
+2. conversation loading and duplicate reconciliation;
+3. stable conversation IDs;
+4. Lore batch normalization;
+5. bounded inspection summaries for human and GUI review.
+
+Provider parsing remains outside the desktop package. The GUI invokes the public CLI, so automation and humans receive the same behavior.
 
 ## Boundary contract
 
 Each conversation becomes one Lore source file and one logical session:
 
-- `sourceFileId`: `chatgpt:<conversation-id>`
+- `sourceFileId`: `<provider>:<conversation-id>`
 - `sessionId`: same as `sourceFileId`
-- `source`: `chatgpt` by default
+- `source`: `chatgpt` or `claude` by default
 - `kind`: `primary`
-- `resumeToken`: a SHA-256 hash of the exported conversation object
-- `path`: a non-sensitive `chatgpt-export://` URI, never the user's filesystem path
+- `resumeToken`: SHA-256 of the exported conversation object
+- `path`: a non-sensitive provider export URI, never the user's filesystem path
 
 Each message carries:
 
-- stable synthetic `messageId`
-- source and session IDs
-- original message UUID
-- parent UUID
-- deterministic sequence
-- normalized role
-- timestamp
-- model name when exported
-- searchable text
-- truncation state
+- stable synthetic `messageId`;
+- source and session IDs;
+- original or deterministic message UUID;
+- parent UUID;
+- deterministic sequence;
+- normalized role;
+- timestamp and model when exported;
+- searchable redacted text;
+- truncation state.
+
+## ChatGPT fidelity
+
+ChatGPT conversations can contain regenerated answers and alternate child branches. The adapter finds every root, traverses child nodes deterministically, retains every message once, and preserves parent relations.
+
+## Claude fidelity
+
+Claude exports are represented as ordered message collections. The adapter supports common root containers and message fields, preserves explicit parent IDs, and otherwise connects messages in exported chronological order.
 
 ## Why use `lore push`
 
-The push interface is Lore's validated universal write boundary. Using it avoids coupling ContinuityBridge to Lore's SQLite schema or migrations. Lore can evolve its database internals without requiring this project to write tables directly.
+The push interface is Lore's validated universal write boundary. ContinuityBridge does not write Lore's SQLite tables directly, so Lore can evolve its storage schema independently.
 
-## Branch fidelity
+## Desktop process boundary
 
-A ChatGPT conversation can contain regenerated answers and alternate child branches. Flattening only the active branch destroys useful history. The parser therefore:
-
-1. Finds every root.
-2. Traverses children in timestamp and ID order.
-3. Retains every message exactly once.
-4. Stores the original parent relation.
-5. Adds any disconnected nodes deterministically.
-
-The resulting sequence is stable across repeated imports.
+The Python desktop client constructs argument arrays and uses `shell=False`. Long-running work executes on worker threads; UI changes happen only on Tkinter's main thread through a queue.
 
 ## Extension model
 
-New chat sources should implement two operations:
-
-1. Resolve the source package or history location.
-2. Produce Lore-normalized batches.
-
-They should not create another database, another MCP server, or another search engine unless the shared-store contract proves insufficient.
+A new provider should add an adapter and synthetic fixtures, then expose matching `inspect-<provider>` and `import-<provider>` commands. It should not create another database, MCP server, or search engine unless the shared-store contract proves insufficient.
