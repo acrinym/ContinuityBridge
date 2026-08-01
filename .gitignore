@@ -1,0 +1,16 @@
+node_modules/
+coverage/
+dist/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.jsonl
+*.zip
+chatgpt-export*/
+conversations.json
+.DS_Store
+.env
+.env.*
+!.env.example
