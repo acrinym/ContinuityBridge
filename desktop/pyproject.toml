@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "continuity-bridge-desktop"
-version = "0.2.0"
-description = "Local desktop GUI for importing ChatGPT and Claude exports into Lore."
+version = "0.3.0"
+description = "Local desktop apps for importing AI history and connecting Lore MCP clients."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -22,6 +22,7 @@ classifiers = [
 
 [project.scripts]
 continuity-bridge-gui = "continuity_bridge_desktop.app:main"
+continuity-bridge-connections = "continuity_bridge_desktop.control_center:main"
 
 [tool.setuptools]
 packages = ["continuity_bridge_desktop"]
