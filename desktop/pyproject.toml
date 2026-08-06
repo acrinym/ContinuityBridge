@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "continuity-bridge-desktop"
-version = "0.3.0"
-description = "Local desktop apps for importing AI history and connecting Lore MCP clients."
+version = "0.4.0"
+description = "Local desktop apps for importing AI history, connecting Lore MCP clients, and resuming changed imports."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
