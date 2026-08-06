@@ -15,6 +15,14 @@ import {
   summarizeClaudeConversations,
   toClaudeLoreBatches,
 } from "./claude/parse-export.js";
+import {
+  defaultManifestPath,
+  loadManifest,
+  loreDestinationKey,
+  markBatchImported,
+  saveManifest,
+  selectPendingBatches,
+} from "./incremental/manifest.js";
 import { pushBatchesToLore } from "./lore/push.js";
 
 const PROVIDERS = {
@@ -46,13 +54,16 @@ Usage:
   continuity-bridge help
 
 Import options:
-  --to-lore                 Send every normalized conversation to \`lore push\`.
-  --output <file>           Also write normalized Lore batches as JSONL.
-  --dry-run                 Parse and validate only; write nothing.
+  --to-lore                 Send normalized conversations to \`lore push\`.
+  --output <file>           Also write a complete normalized JSONL snapshot.
+  --dry-run                 Parse and plan only; write nothing.
   --no-redact               Preserve credential-like strings verbatim.
   --project <name>          Override the Lore project assigned to all conversations.
   --source <name>           Override the Lore source namespace.
   --lore-command <path>     Lore executable to invoke (default: lore).
+  --manifest <file>         Override the incremental Lore manifest path.
+  --no-manifest             Disable incremental Lore skipping for this run.
+  --reimport                Push every selected conversation and refresh checkpoints.
   --conversation-id <id>    Import one conversation. Repeat to import several.
   --limit <count>           Import only the first N selected conversations.
   --quiet                   Suppress per-conversation progress.
@@ -66,6 +77,7 @@ Inspect options:
 Examples:
   continuity-bridge import-chatgpt ~/Downloads/chatgpt-export.zip --to-lore
   continuity-bridge import-claude ~/Downloads/claude-export.zip --to-lore
+  continuity-bridge import-chatgpt export.zip --to-lore --reimport
   continuity-bridge inspect-chatgpt conversations.json --json
   continuity-bridge inspect-claude export-dir --json --limit 20
 `;
@@ -90,6 +102,7 @@ function parseArgs(argv) {
     "--project",
     "--source",
     "--lore-command",
+    "--manifest",
     "--limit",
     "--conversation-id",
   ]);
@@ -104,6 +117,9 @@ function parseArgs(argv) {
     project: undefined,
     source: operation.provider,
     loreCommand: "lore",
+    manifestPath: undefined,
+    manifestEnabled: true,
+    reimport: false,
     limit: undefined,
     quiet: false,
     json: false,
@@ -122,6 +138,7 @@ function parseArgs(argv) {
       if (value === "--project") parsed.project = optionValue;
       if (value === "--source") parsed.source = optionValue;
       if (value === "--lore-command") parsed.loreCommand = optionValue;
+      if (value === "--manifest") parsed.manifestPath = optionValue;
       if (value === "--conversation-id") parsed.conversationIds.push(optionValue);
       if (value === "--limit") {
         const limit = Number.parseInt(optionValue, 10);
@@ -136,6 +153,8 @@ function parseArgs(argv) {
     if (value === "--to-lore") parsed.toLore = true;
     else if (value === "--dry-run") parsed.dryRun = true;
     else if (value === "--no-redact") parsed.redact = false;
+    else if (value === "--no-manifest") parsed.manifestEnabled = false;
+    else if (value === "--reimport") parsed.reimport = true;
     else if (value === "--quiet") parsed.quiet = true;
     else if (value === "--json") parsed.json = true;
     else if (value.startsWith("--")) {
@@ -145,7 +164,18 @@ function parseArgs(argv) {
   }
 
   if (!parsed.input) return { command: "error", error: `${command} requires an export path` };
-  if (parsed.mode === "inspect" && (parsed.toLore || parsed.output || parsed.dryRun)) {
+  if (!parsed.manifestEnabled && parsed.manifestPath) {
+    return { command: "error", error: "--manifest and --no-manifest cannot be used together" };
+  }
+  if (
+    parsed.mode === "inspect" &&
+    (parsed.toLore ||
+      parsed.output ||
+      parsed.dryRun ||
+      parsed.manifestPath ||
+      !parsed.manifestEnabled ||
+      parsed.reimport)
+  ) {
     return { command: "error", error: `${command} does not accept import destination options` };
   }
   return parsed;
@@ -243,8 +273,33 @@ export async function runCli(argv) {
       `Parsed ${batches.length} ${provider.label} conversations and ${messageCount} messages.\n`,
     );
 
+    let loreBatches = batches;
+    let skippedLore = 0;
+    let manifest = null;
+    let manifestPath = null;
+    let destinationKey = null;
+    if (args.toLore && args.manifestEnabled) {
+      manifestPath = resolve(args.manifestPath ?? defaultManifestPath());
+      manifest = await loadManifest(manifestPath);
+      destinationKey = loreDestinationKey({
+        source: args.source,
+        project: args.project,
+      });
+      const selection = selectPendingBatches(batches, manifest, destinationKey, {
+        reimport: args.reimport,
+      });
+      loreBatches = selection.pending;
+      skippedLore = selection.skipped.length;
+      process.stdout.write(
+        `Incremental Lore plan: ${loreBatches.length} pending, ${skippedLore} unchanged; ` +
+          `manifest ${manifestPath}.\n`,
+      );
+    } else if (args.toLore) {
+      process.stdout.write("Incremental Lore manifest disabled for this run.\n");
+    }
+
     if (args.dryRun) {
-      process.stdout.write("Dry run complete; no records were written.\n");
+      process.stdout.write("Dry run complete; no records or manifest checkpoints were written.\n");
       return 0;
     }
 
@@ -257,17 +312,31 @@ export async function runCli(argv) {
 
     if (args.output) {
       const writtenPath = await writeJsonl(args.output, batches);
-      process.stdout.write(`Wrote normalized Lore batches to ${writtenPath}.\n`);
+      process.stdout.write(`Wrote complete normalized Lore snapshot to ${writtenPath}.\n`);
     }
 
     if (args.toLore) {
-      const result = await pushBatchesToLore(batches, {
-        command: args.loreCommand,
-        quiet: args.quiet,
-      });
-      process.stdout.write(
-        `Lore import complete: ${result.conversations} conversations, ${result.messages} messages.\n`,
-      );
+      if (loreBatches.length === 0) {
+        process.stdout.write(
+          `Lore import already current: skipped ${skippedLore} unchanged conversations.\n`,
+        );
+      } else {
+        const result = await pushBatchesToLore(loreBatches, {
+          command: args.loreCommand,
+          quiet: args.quiet,
+          onBatchImported:
+            manifest && manifestPath && destinationKey
+              ? async (batch) => {
+                  markBatchImported(manifest, destinationKey, batch);
+                  await saveManifest(manifestPath, manifest);
+                }
+              : undefined,
+        });
+        process.stdout.write(
+          `Lore import complete: ${result.conversations} conversations, ${result.messages} messages` +
+            `${skippedLore ? `; skipped ${skippedLore} unchanged` : ""}.\n`,
+        );
+      }
     }
 
     return 0;
