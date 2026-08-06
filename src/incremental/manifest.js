@@ -57,7 +57,36 @@ export function loreDestinationKey(options = {}) {
 export function batchResumeToken(batch) {
   const exported = batch?.sourceFile?.resumeToken;
   if (typeof exported === "string" && exported.length > 0) return exported;
-  return createHash("sha256").update(JSON.stringify(batch)).digest("hex");
+  if (
+    exported &&
+    typeof exported === "object" &&
+    typeof exported.value === "string" &&
+    exported.value.length > 0
+  ) {
+    return `${exported.kind ?? "token"}:${exported.value}`;
+  }
+
+  const stableFallback = {
+    sourceFileId: batch?.sourceFile?.sourceFileId ?? null,
+    sessionId: batch?.sourceFile?.sessionId ?? null,
+    source: batch?.sourceFile?.source ?? null,
+    path: batch?.sourceFile?.path ?? null,
+    prefixSha256: batch?.sourceFile?.prefixSha256 ?? null,
+    messages: Array.isArray(batch?.messages)
+      ? batch.messages.map((message) => ({
+          messageId: message.messageId ?? null,
+          uuid: message.uuid ?? null,
+          parentUuid: message.parentUuid ?? null,
+          seq: message.seq ?? null,
+          role: message.role ?? null,
+          timestamp: message.timestamp ?? null,
+          project: message.project ?? null,
+          model: message.model ?? null,
+          text: message.text ?? "",
+        }))
+      : [],
+  };
+  return createHash("sha256").update(JSON.stringify(stableFallback)).digest("hex");
 }
 
 export function batchManifestId(batch) {
