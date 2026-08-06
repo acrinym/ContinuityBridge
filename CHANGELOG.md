@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 — Train 4
+
+- Added destination-aware incremental manifests for Lore imports.
+- Added automatic skipping of unchanged ChatGPT and Claude conversations.
+- Added `--manifest`, `--no-manifest`, and `--reimport` controls.
+- Added atomic per-conversation checkpoints after confirmed Lore pushes.
+- Added crash-resume behavior that never checkpoints a failed conversation.
+- Kept JSONL output as a complete portable snapshot instead of an incremental fragment.
+- Added malformed-manifest refusal, dry-run planning, destination-isolation, and end-to-end resume tests.
+
 ## 0.3.0 — Train 3
 
 - Added a desktop MCP Control Center for Lore, Codex, Claude Code, and Cursor.
