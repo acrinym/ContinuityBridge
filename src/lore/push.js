@@ -48,8 +48,15 @@ export async function pushBatchesToLore(batches, options = {}) {
   let messages = 0;
   for (let index = 0; index < batches.length; index += 1) {
     const batch = batches[index];
-    await pushBatchToLore(batch, options);
+    const pushResult = await pushBatchToLore(batch, options);
     messages += batch.messages.length;
+    if (typeof options.onBatchImported === "function") {
+      await options.onBatchImported(batch, {
+        index,
+        total: batches.length,
+        pushResult,
+      });
+    }
     if (!options.quiet) {
       process.stderr.write(
         `Imported ${index + 1}/${batches.length}: ${batch.sourceFile.sessionId} ` +
