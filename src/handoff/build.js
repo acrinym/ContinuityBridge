@@ -18,6 +18,8 @@ function uniqueReferences(values = []) {
 export async function buildHandoff(options = {}) {
   const task = String(options.task ?? "").trim();
   if (!task) throw new Error("handoff task is required");
+  const issueRefs = uniqueReferences(options.issueRefs);
+  const pullRequestRefs = uniqueReferences(options.pullRequestRefs);
 
   const [lore, repository] = await Promise.all([
     collectLoreEvidence({
@@ -33,9 +35,12 @@ export async function buildHandoff(options = {}) {
     }),
   ]);
 
+  if (!repository && (issueRefs.length > 0 || pullRequestRefs.length > 0)) {
+    throw new Error("issue and pull request references require a resolvable Git repository");
+  }
   if (repository) {
-    repository.issues = uniqueReferences(options.issueRefs);
-    repository.pullRequests = uniqueReferences(options.pullRequestRefs);
+    repository.issues = issueRefs;
+    repository.pullRequests = pullRequestRefs;
   }
 
   return {
