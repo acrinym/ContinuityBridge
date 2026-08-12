@@ -1,6 +1,6 @@
 import { access, mkdtemp, readdir, stat } from "node:fs/promises";
 import { constants } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 
@@ -92,11 +92,23 @@ export async function resolveChatGptExport(input) {
     if (conversationPaths.length === 0) {
       throw new Error(`no conversations.json or conversations-*.json found under ${absolute}`);
     }
-    return { conversationPaths, cleanup: async () => {} };
+    return {
+      conversationPaths,
+      rootDirectory: absolute,
+      inputKind: "directory",
+      sourceDisplayName: basename(absolute),
+      cleanup: async () => {},
+    };
   }
 
   if (extname(absolute).toLowerCase() === ".json") {
-    return { conversationPaths: [absolute], cleanup: async () => {} };
+    return {
+      conversationPaths: [absolute],
+      rootDirectory: dirname(absolute),
+      inputKind: "json",
+      sourceDisplayName: basename(absolute),
+      cleanup: async () => {},
+    };
   }
 
   if (extname(absolute).toLowerCase() !== ".zip") {
@@ -114,6 +126,9 @@ export async function resolveChatGptExport(input) {
 
   return {
     conversationPaths,
+    rootDirectory: destination,
+    inputKind: "zip",
+    sourceDisplayName: basename(absolute),
     cleanup: async () => {
       const { rm } = await import("node:fs/promises");
       await rm(destination, { recursive: true, force: true });

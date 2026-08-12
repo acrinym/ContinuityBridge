@@ -7,6 +7,19 @@
 - Added guarded merge-commit automation after exact-head CI success and paginated dependency-only file validation.
 - Added a privileged-workflow safety test and operating documentation.
 
+## 0.6.0 — Train 6
+
+- Added `continuity-bridge attachments` to enumerate attachment references from ChatGPT and Claude exports without exposing signed URLs, opaque provider file IDs, or raw asset pointers.
+- Added export-root-bounded local artifact resolution with explicit available, missing, and ambiguous states.
+- Added explicit attachment selection before copying and portable `attachments.json` manifests.
+- Added SHA-256 hashing, post-copy verification, deterministic bundle paths, conflict refusal, and explicit overwrite control.
+- Added conversation/message/provider provenance for every attachment reference.
+- Upgraded Handoff Builder to `continuity-bridge/handoff-v2` with selected attachment plans and portable artifact bundles referenced by relative path.
+- Kept generated handoffs inside attachment bundles so moving the directory preserves artifact references.
+- Added desktop attachment scan, multi-select, preview, and bundle creation through the same public CLI contract.
+- Added synthetic local attachment fixtures and coverage for copied, missing, pointer-suppressed, hashed, and portable artifacts.
+- Corrected the public roadmap so 0.6 Safe Attachment Continuity is the active train and 0.5 is completed.
+
 ## 0.5.0 — Train 5
 
 - Added `continuity-bridge handoff` for evidence-backed cross-AI continuation packages.

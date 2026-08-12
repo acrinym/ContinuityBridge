@@ -1,4 +1,4 @@
-"""Tkinter Handoff Builder for bounded Lore evidence packages."""
+"""Tkinter Handoff Builder for bounded Lore evidence and portable local artifacts."""
 
 from __future__ import annotations
 
@@ -21,11 +21,12 @@ class HandoffBuilderApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("1040x760")
-        self.root.minsize(820, 620)
+        self.root.geometry("1100x860")
+        self.root.minsize(860, 680)
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.settings = self._load_settings()
         self.busy = False
+        self.attachment_items: list[dict] = []
 
         self.task_var = tk.StringVar()
         self.query_var = tk.StringVar()
@@ -40,6 +41,21 @@ class HandoffBuilderApp:
         self.lore_var = tk.StringVar(value=self.settings.get("lore_command", "lore"))
         self.cli_var = tk.StringVar(
             value=self.settings.get("cli_path", str(BridgeClient.default_cli_path()))
+        )
+        self.attachment_provider_var = tk.StringVar(
+            value=self.settings.get("attachment_provider", "chatgpt")
+        )
+        self.attachment_export_var = tk.StringVar(
+            value=self.settings.get("attachment_export", "")
+        )
+        self.attachment_bundle_var = tk.StringVar(
+            value=self.settings.get("attachment_bundle", "")
+        )
+        self.overwrite_attachments_var = tk.BooleanVar(
+            value=self.settings.get("overwrite_attachments", False)
+        )
+        self.attachment_status_var = tk.StringVar(
+            value="Optional: scan a ChatGPT or Claude export and select local artifacts to carry."
         )
         self.status_var = tk.StringVar(value="Describe the task and choose Lore evidence.")
 
@@ -67,7 +83,7 @@ class HandoffBuilderApp:
         )
         ttk.Label(
             header,
-            text="Lore evidence · Git coordinates · no model call",
+            text="Lore evidence · Git coordinates · verified local artifacts · no model call",
             style="Muted.TLabel",
         ).pack(side=tk.RIGHT)
 
@@ -84,7 +100,7 @@ class HandoffBuilderApp:
         ttk.Label(evidence, text="Exact message IDs (one per line)").grid(
             row=1, column=0, sticky="nw", pady=(8, 0)
         )
-        self.ids_text = scrolledtext.ScrolledText(evidence, height=4, wrap=tk.NONE)
+        self.ids_text = scrolledtext.ScrolledText(evidence, height=3, wrap=tk.NONE)
         self.ids_text.grid(row=1, column=1, columnspan=5, sticky="ew", padx=(8, 0), pady=(8, 0))
         ttk.Label(evidence, text="Search anchors").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Spinbox(evidence, from_=1, to=50, textvariable=self.limit_var, width=7).grid(
@@ -117,7 +133,57 @@ class HandoffBuilderApp:
         ).grid(row=1, column=1, sticky="e", pady=(8, 0))
         repo.columnconfigure(0, weight=1)
 
-        output = ttk.LabelFrame(outer, text="4. Output", padding=10)
+        attachments = ttk.LabelFrame(outer, text="4. Safe attachments (optional)", padding=10)
+        attachments.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(attachments, text="Provider").grid(row=0, column=0, sticky="w")
+        ttk.Combobox(
+            attachments,
+            textvariable=self.attachment_provider_var,
+            values=("chatgpt", "claude"),
+            state="readonly",
+            width=10,
+        ).grid(row=0, column=1, sticky="w", padx=(8, 12))
+        ttk.Entry(attachments, textvariable=self.attachment_export_var).grid(
+            row=0, column=2, sticky="ew"
+        )
+        ttk.Button(attachments, text="File…", command=self._browse_attachment_file).grid(
+            row=0, column=3, padx=(8, 0)
+        )
+        ttk.Button(attachments, text="Folder…", command=self._browse_attachment_folder).grid(
+            row=0, column=4, padx=(6, 0)
+        )
+        self.scan_button = ttk.Button(attachments, text="Scan", command=self._scan_attachments)
+        self.scan_button.grid(row=0, column=5, padx=(6, 0))
+
+        self.attachment_list = tk.Listbox(
+            attachments,
+            height=4,
+            selectmode=tk.EXTENDED,
+            exportselection=False,
+        )
+        self.attachment_list.grid(row=1, column=0, columnspan=6, sticky="ew", pady=(8, 4))
+        ttk.Label(
+            attachments,
+            textvariable=self.attachment_status_var,
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, columnspan=6, sticky="w")
+
+        ttk.Label(attachments, text="Bundle directory").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(attachments, textvariable=self.attachment_bundle_var).grid(
+            row=3, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=(8, 0)
+        )
+        ttk.Button(attachments, text="Choose…", command=self._browse_attachment_bundle).grid(
+            row=3, column=4, padx=(8, 0), pady=(8, 0)
+        )
+        ttk.Checkbutton(
+            attachments,
+            text="Replace conflicting copied files after hash comparison",
+            variable=self.overwrite_attachments_var,
+        ).grid(row=3, column=5, sticky="e", padx=(8, 0), pady=(8, 0))
+        attachments.columnconfigure(2, weight=1)
+        attachments.columnconfigure(3, weight=1)
+
+        output = ttk.LabelFrame(outer, text="5. Output", padding=10)
         output.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(output, text="Format").grid(row=0, column=0, sticky="w")
         ttk.Combobox(
@@ -131,6 +197,11 @@ class HandoffBuilderApp:
         ttk.Button(output, text="Save as…", command=self._browse_output).grid(
             row=0, column=3, padx=(8, 0)
         )
+        ttk.Label(
+            output,
+            text="When attachments are selected, Build writes HANDOFF inside the bundle directory.",
+            style="Muted.TLabel",
+        ).grid(row=1, column=2, columnspan=2, sticky="w", pady=(5, 0))
         output.columnconfigure(2, weight=1)
 
         runtime = ttk.LabelFrame(outer, text="Runtime", padding=10)
@@ -165,7 +236,16 @@ class HandoffBuilderApp:
             cli_path=self.cli_var.get().strip() or None,
         )
 
-    def _options(self, *, output_path: str | None) -> HandoffOptions:
+    def _selected_attachments(self) -> tuple[str, ...]:
+        ids: list[str] = []
+        for index in self.attachment_list.curselection():
+            if 0 <= index < len(self.attachment_items):
+                attachment_id = str(self.attachment_items[index].get("id", "")).strip()
+                if attachment_id:
+                    ids.append(attachment_id)
+        return tuple(ids)
+
+    def _options(self, *, output_path: str | None, write: bool) -> HandoffOptions:
         message_ids = tuple(
             line.strip() for line in self.ids_text.get("1.0", tk.END).splitlines() if line.strip()
         )
@@ -173,6 +253,22 @@ class HandoffBuilderApp:
         no_repository = self.no_repo_var.get()
         if no_repository:
             repository = None
+
+        selected_attachments = self._selected_attachments()
+        attachment_export = self.attachment_export_var.get().strip()
+        attachment_provider: str | None = None
+        attachment_bundle: str | None = None
+        if attachment_export:
+            if not self.attachment_items:
+                raise ValueError("Scan the attachment export before building the handoff.")
+            if not selected_attachments:
+                raise ValueError("Select one or more attachment references, or clear the attachment export field.")
+            attachment_provider = self.attachment_provider_var.get().strip().lower()
+            if write:
+                attachment_bundle = self.attachment_bundle_var.get().strip() or None
+                if not attachment_bundle:
+                    raise ValueError("Choose a bundle directory before building selected attachments.")
+
         return HandoffOptions(
             task=self.task_var.get(),
             query=self.query_var.get().strip() or None,
@@ -185,6 +281,11 @@ class HandoffBuilderApp:
             context_messages=int(self.context_var.get()),
             output_path=output_path,
             output_format=self.format_var.get(),
+            attachment_provider=attachment_provider,
+            attachment_export=attachment_export or None,
+            attachment_ids=selected_attachments,
+            attachment_bundle=attachment_bundle,
+            overwrite_attachments=self.overwrite_attachments_var.get(),
         )
 
     def _set_busy(self, busy: bool, status: str) -> None:
@@ -193,32 +294,70 @@ class HandoffBuilderApp:
         state = tk.DISABLED if busy else tk.NORMAL
         self.preview_button.configure(state=state)
         self.write_button.configure(state=state)
+        self.scan_button.configure(state=state)
         if busy:
             self.progress.start(12)
         else:
             self.progress.stop()
 
+    def _scan_attachments(self) -> None:
+        if self.busy:
+            return
+        provider = self.attachment_provider_var.get().strip().lower()
+        export_path = self.attachment_export_var.get().strip()
+        client = self._client()
+        try:
+            client.build_attachment_scan_command(provider, export_path)
+        except ValueError as error:
+            messagebox.showerror(APP_TITLE, str(error))
+            return
+        self._set_busy(True, "Scanning export attachment references…")
+
+        def worker() -> None:
+            try:
+                result = client.scan_attachments(provider, export_path)
+                self.events.put(("attachments", result))
+            except Exception as error:
+                self.events.put(("error", str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _run(self, *, write: bool) -> None:
         if self.busy:
             return
-        output_path = self.output_var.get().strip() if write else None
-        if write and not output_path:
+
+        has_selected_attachments = bool(self._selected_attachments())
+        if write and has_selected_attachments and not self.attachment_bundle_var.get().strip():
+            self._browse_attachment_bundle()
+            if not self.attachment_bundle_var.get().strip():
+                return
+
+        output_path = None if has_selected_attachments else (self.output_var.get().strip() if write else None)
+        if write and not has_selected_attachments and not output_path:
             self._browse_output()
             output_path = self.output_var.get().strip()
             if not output_path:
                 return
+
         try:
-            options = self._options(output_path=output_path)
-            command = self._client().build_command(options)
+            options = self._options(output_path=output_path, write=write)
+            client = self._client()
+            command = client.build_command(options)
         except (ValueError, tk.TclError) as error:
             messagebox.showerror(APP_TITLE, str(error))
             return
-        self._set_busy(True, "Building evidence handoff…")
+
+        if write and options.attachment_bundle:
+            extension = ".json" if options.output_format == "json" else ".md"
+            display_path = str(Path(options.attachment_bundle) / f"HANDOFF{extension}")
+        else:
+            display_path = output_path
+        self._set_busy(True, "Building portable handoff…" if write else "Building handoff preview…")
 
         def worker() -> None:
             try:
-                result = self._client().run(command)
-                self.events.put(("written" if write else "preview", (result.stdout, output_path)))
+                result = client.run(command)
+                self.events.put(("written" if write else "preview", (result.stdout, display_path)))
             except Exception as error:
                 self.events.put(("error", str(error)))
 
@@ -234,21 +373,43 @@ class HandoffBuilderApp:
         try:
             while True:
                 kind, payload = self.events.get_nowait()
-                if kind == "preview":
-                    text, _ = payload
-                    self._show_preview(text)
-                    self._set_busy(False, "Preview ready.")
-                elif kind == "written":
-                    text, path = payload
-                    self._show_preview(text or f"Handoff written to {path}")
-                    self._set_busy(False, f"Handoff written: {path}")
-                    messagebox.showinfo(APP_TITLE, f"Handoff written to:\n{path}")
-                elif kind == "error":
-                    self._set_busy(False, "Handoff failed.")
-                    messagebox.showerror(APP_TITLE, str(payload))
+                try:
+                    if kind == "attachments":
+                        self._show_attachment_scan(payload)
+                        self._set_busy(False, "Attachment scan ready.")
+                    elif kind == "preview":
+                        text, _ = payload
+                        self._show_preview(text)
+                        self._set_busy(False, "Preview ready.")
+                    elif kind == "written":
+                        text, path = payload
+                        self._show_preview(text or f"Handoff written to {path}")
+                        self._set_busy(False, f"Handoff written: {path}")
+                        messagebox.showinfo(APP_TITLE, f"Portable handoff written to:\n{path}")
+                    elif kind == "error":
+                        self._set_busy(False, "Operation failed.")
+                        messagebox.showerror(APP_TITLE, str(payload))
+                except Exception as error:
+                    self._set_busy(False, "UI update failed.")
+                    messagebox.showerror(APP_TITLE, str(error))
         except queue.Empty:
             pass
-        self.root.after(100, self._poll_events)
+        finally:
+            self.root.after(100, self._poll_events)
+
+    def _show_attachment_scan(self, result: dict) -> None:
+        self.attachment_items = list(result.get("attachments", []))
+        self.attachment_list.delete(0, tk.END)
+        for item in self.attachment_items:
+            status = item.get("status", "unknown")
+            mime = item.get("mimeType") or "unknown type"
+            name = item.get("name") or "unnamed attachment"
+            self.attachment_list.insert(tk.END, f"{name} — {status} — {mime} — {item.get('id', '')}")
+        self.attachment_status_var.set(
+            f"{result.get('attachmentCount', 0)} references · "
+            f"{result.get('availableCount', 0)} local · "
+            f"{result.get('unavailableCount', 0)} unavailable. Select exactly what to carry."
+        )
 
     def _show_preview(self, text: str) -> None:
         self.preview.configure(state=tk.NORMAL)
@@ -271,6 +432,28 @@ class HandoffBuilderApp:
         )
         if path:
             self.output_var.set(path)
+
+    def _browse_attachment_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose ChatGPT or Claude export",
+            filetypes=(("Export files", "*.zip *.json"), ("All files", "*.*")),
+        )
+        if path:
+            self.attachment_export_var.set(path)
+            self.attachment_items = []
+            self.attachment_list.delete(0, tk.END)
+
+    def _browse_attachment_folder(self) -> None:
+        path = filedialog.askdirectory(title="Choose extracted ChatGPT or Claude export")
+        if path:
+            self.attachment_export_var.set(path)
+            self.attachment_items = []
+            self.attachment_list.delete(0, tk.END)
+
+    def _browse_attachment_bundle(self) -> None:
+        path = filedialog.askdirectory(title="Choose portable handoff bundle directory")
+        if path:
+            self.attachment_bundle_var.set(path)
 
     def _browse_cli(self) -> None:
         path = filedialog.askopenfilename(title="Choose ContinuityBridge CLI")
@@ -297,6 +480,10 @@ class HandoffBuilderApp:
             "node_command": self.node_var.get().strip() or "node",
             "lore_command": self.lore_var.get().strip() or "lore",
             "cli_path": self.cli_var.get().strip(),
+            "attachment_provider": self.attachment_provider_var.get().strip(),
+            "attachment_export": self.attachment_export_var.get().strip(),
+            "attachment_bundle": self.attachment_bundle_var.get().strip(),
+            "overwrite_attachments": self.overwrite_attachments_var.get(),
         }
         SETTINGS_PATH.write_text(json.dumps(data, indent=2) + "\n", encoding="utf8")
 
