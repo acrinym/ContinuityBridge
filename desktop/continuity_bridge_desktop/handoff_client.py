@@ -47,6 +47,10 @@ class HandoffClient:
             raise ValueError("Limit and context-message count must be positive.")
         if options.no_repository and options.repository_path:
             raise ValueError("Choose a repository or omit repository coordinates, not both.")
+        if options.no_repository and options.include_local_path:
+            raise ValueError("A local repository path cannot be included when repository coordinates are omitted.")
+        if options.output_format not in {"markdown", "md", "json"}:
+            raise ValueError("Output format must be markdown or json.")
 
         command = [*self._prefix(), "--task", task]
         if query:
