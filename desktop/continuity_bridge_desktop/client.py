@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 from typing import Iterable, Sequence
 
+from .runtime import default_bridge_cli, default_node_command
+
 
 SUPPORTED_PROVIDERS = ("chatgpt", "claude")
 
@@ -32,19 +34,15 @@ class BridgeClient:
 
     def __init__(
         self,
-        node_command: str = "node",
+        node_command: str | None = None,
         cli_path: str | Path | None = None,
     ) -> None:
-        self.node_command = node_command
+        self.node_command = node_command or default_node_command()
         self.cli_path = Path(cli_path) if cli_path else self.default_cli_path()
 
     @staticmethod
     def default_cli_path() -> Path:
-        installed = Path(__file__).resolve()
-        repository_candidate = installed.parents[2] / "bin" / "continuity-bridge.js"
-        if repository_candidate.exists():
-            return repository_candidate
-        return Path("continuity-bridge")
+        return default_bridge_cli()
 
     @staticmethod
     def normalize_provider(provider: str) -> str:
