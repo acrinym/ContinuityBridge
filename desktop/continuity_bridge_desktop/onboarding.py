@@ -20,6 +20,26 @@ class GuidedContinuityWorkstation(CaptureAwareWorkstation):
         super().__init__(root)
         self.lore_var.set(lore_command_for_setting(self.settings.get("lore_command")))
 
+    def _build_home(self) -> None:
+        super()._build_home()
+        local_memory = ttk.LabelFrame(self.home_tab, text="Local memory", padding=10)
+        local_memory.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(
+            local_memory,
+            text=(
+                "Initialize the selected Lore runtime from supported local transcript sources, or skip this and use "
+                "History/Capture. Initialization is explicit and does not configure AI clients."
+            ),
+            style="Muted.TLabel",
+            wraplength=900,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            local_memory,
+            text="Initialize local memory",
+            style="Accent.TButton",
+            command=self._initialize_local_memory,
+        ).pack(side=tk.RIGHT, padx=(10, 0))
+
     def _make_handoff_options(self, *, preview: bool):
         selected_attachments = self._selected_attachment_ids()
         bundle = self.continue_bundle_var.get().strip()
@@ -61,7 +81,7 @@ class GuidedContinuityWorkstation(CaptureAwareWorkstation):
         text = (
             "ContinuityBridge packaged setup\n\n"
             "Lore is already bundled with this application; no npm or Node installation is required.\n"
-            "Choose ‘Initialize local memory’ on first run to detect/index supported local transcript sources, "
+            "Choose ‘Initialize local memory’ on Home or first run to detect/index supported local transcript sources, "
             "or import/capture evidence directly through ContinuityBridge.\n\n"
             "Git is optional and is only needed for repository-aware continuity coordinates.\n"
             "Codex, Claude Code, and Cursor are optional and can be connected from Connections."
