@@ -7,11 +7,11 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-from .repository_workstation import RepositoryAwareWorkstation
+from .capture_workstation import CaptureAwareWorkstation
 from .workstation import CLIENT_LABELS, ContinuityWorkstation
 
 
-class GuidedContinuityWorkstation(RepositoryAwareWorkstation):
+class GuidedContinuityWorkstation(CaptureAwareWorkstation):
     """Workstation product boundary with portable-build guarantees."""
 
     def _make_handoff_options(self, *, preview: bool):
@@ -26,10 +26,6 @@ class GuidedContinuityWorkstation(RepositoryAwareWorkstation):
         if preview or options.output_path or options.attachment_bundle:
             return options
 
-        # A bundle directory is also a valid destination for a handoff that has no
-        # attachment copies. The base UI deliberately only passes attachment_bundle
-        # when attachments are selected, so explicitly place the handoff inside the
-        # chosen directory instead of merely printing it to stdout.
         if bundle:
             extension = "json" if options.output_format == "json" else "md"
             return replace(options, output_path=str(Path(bundle) / f"HANDOFF.{extension}"))
@@ -43,8 +39,8 @@ class FirstRunDialog:
         self.app = app
         self.window = tk.Toplevel(app.root)
         self.window.title("Welcome to ContinuityBridge")
-        self.window.geometry("740x560")
-        self.window.minsize(680, 520)
+        self.window.geometry("740x570")
+        self.window.minsize(680, 530)
         self.window.transient(app.root)
         self.window.grab_set()
         self.runtime_var = tk.StringVar(value="Checking…")
@@ -63,7 +59,7 @@ class FirstRunDialog:
             outer,
             text=(
                 "This workstation keeps your conversation evidence local, makes it searchable through Lore, "
-                "connects supported AI clients, and builds portable continuation packages."
+                "supports explicit live capture, connects supported AI clients, and builds portable continuation packages."
             ),
             wraplength=680,
         ).pack(anchor="w", pady=(6, 16))
@@ -82,14 +78,14 @@ class FirstRunDialog:
             ttk.Label(readiness, textvariable=variable, wraplength=500).grid(row=row, column=1, sticky="w", pady=3)
         readiness.columnconfigure(1, weight=1)
 
-        journey = ttk.LabelFrame(outer, text="2. Your first continuity journey", padding=12)
+        journey = ttk.LabelFrame(outer, text="2. Your continuity journey", padding=12)
         journey.pack(fill=tk.X, pady=(14, 0))
         ttk.Label(
             journey,
             text=(
-                "Choose a ChatGPT or Claude export → inspect it locally → import it into Lore → "
-                "search the original evidence in Recall → optionally link it to a repository/issue/PR → "
-                "choose Continue → add current code state or verified local artifacts → build the handoff."
+                "Import existing ChatGPT/Claude history or explicitly capture a supported live browser conversation → "
+                "search the original evidence in Recall → optionally link it to repository context → choose Continue → "
+                "add code state or verified local artifacts → build the handoff."
             ),
             wraplength=650,
             justify=tk.LEFT,
@@ -101,7 +97,7 @@ class FirstRunDialog:
             help_frame,
             text=(
                 "Lore is the searchable local memory layer. Git is optional unless you want repository coordinates. "
-                "Codex, Claude Code, and Cursor are optional and can be connected later from the Connections tab."
+                "Live capture stays OFF until you start it in Capture. Codex, Claude Code, and Cursor are optional."
             ),
             wraplength=650,
         ).pack(anchor="w")
@@ -112,6 +108,7 @@ class FirstRunDialog:
         actions = ttk.Frame(outer)
         actions.pack(fill=tk.X, pady=(18, 0))
         ttk.Button(actions, text="Check again", command=self.app._refresh_health).pack(side=tk.LEFT)
+        ttk.Button(actions, text="Open Capture", command=self._capture).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Open Connections", command=self._connections).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Finish for now", command=self._finish).pack(side=tk.RIGHT)
         ttk.Button(
@@ -153,6 +150,11 @@ class FirstRunDialog:
         self._mark_complete()
         self.window.destroy()
         self.app._select_tab(self.app.connections_tab)
+
+    def _capture(self) -> None:
+        self._mark_complete()
+        self.window.destroy()
+        self.app._select_tab(self.app.capture_tab)
 
     def _choose_export(self) -> None:
         self._mark_complete()
