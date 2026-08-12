@@ -11,7 +11,7 @@ The intended journey is:
 3. import or refresh ChatGPT/Claude history;
 4. search the original evidence in Recall;
 5. inspect exact source context;
-6. optionally link that evidence to a Git repository, issue, or pull request;
+6. optionally link that evidence to a Git repository, with optional issue and pull-request references;
 7. connect an installed AI client to Lore when needed;
 8. send selected evidence into Continue;
 9. recover related evidence/prior handoffs for the repository when useful;
@@ -108,7 +108,7 @@ The link is lightweight metadata. ContinuityBridge stores the real Lore message/
 
 After links exist, the Recall repository filter can narrow a Lore search to evidence explicitly associated with that repository. Filtering still operates on real Lore search results; ContinuityBridge does not fabricate message IDs or maintain a second search index.
 
-If you choose **Continue with selected evidence** on a linked result, ContinuityBridge also restores the linked repository and known issue/PR references when possible.
+If you choose **Continue with selected evidence** on a linked result, ContinuityBridge also restores the linked repository and known issue/PR references when possible. If the evidence is linked to more than one repository, ContinuityBridge does not choose one arbitrarily; select the intended repository in the Recall repository filter first.
 
 ## Connections
 
@@ -137,7 +137,7 @@ Provide the next task. Evidence can come from:
 - a message ID carried directly from Recall;
 - exact message IDs previously linked to the selected repository.
 
-The handoff engine retrieves bounded source context using those real identifiers.
+The handoff engine retrieves bounded source context using those real identifiers. When a handoff is built from a search query, ContinuityBridge reads the exact resolved anchor IDs back from the handoff it actually wrote before associating that handoff with repository continuity metadata.
 
 ### Repository
 
@@ -161,7 +161,7 @@ When a repository has repository links, choose **Find related continuity** to su
 
 Choose **Add related evidence** to add those linked real Lore message IDs to the current continuation evidence list. This is evidence reuse, not summary generation.
 
-Issue and pull-request references are continuity coordinates. ContinuityBridge does not silently fetch their live contents or assume their state. A consuming AI/user must verify the current issue/PR state before acting.
+Issue and pull-request references are optional coordinates attached to a repository. A resolvable Git repository is required whenever either reference is supplied. ContinuityBridge does not silently fetch their live contents or assume their state. A consuming AI/user must verify the current issue/PR state before acting.
 
 A successfully built handoff is linked back to the selected repository so it can appear as related continuity next time.
 
@@ -185,7 +185,7 @@ Preview retrieves evidence and renders the proposed handoff without passing an a
 
 Build writes the handoff and, when selected, copies local artifacts into the portable bundle. Copies are SHA-256 verified and referenced by relative path.
 
-`handoff-v3` additionally includes sanitized issue and pull-request coordinates under the repository section when supplied.
+When issue or pull-request references are supplied, a resolvable repository is required. `handoff-v3` includes the sanitized references under the repository section.
 
 The bundle can then move to another directory/machine without relying on the original absolute path.
 
