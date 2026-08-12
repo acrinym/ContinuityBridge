@@ -1,0 +1,87 @@
+name: Desktop release bundles
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            archive: ContinuityBridge-windows-x64.zip
+          - os: macos-latest
+            label: macos
+            archive: ContinuityBridge-macos.zip
+          - os: ubuntu-latest
+            label: linux-x64
+            archive: ContinuityBridge-linux-x64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install desktop build tooling
+        run: python -m pip install ./desktop pyinstaller
+      - name: Build Workstation application
+        run: pyinstaller packaging/continuitybridge.spec --clean --noconfirm
+      - name: Package Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/ContinuityBridge/* -DestinationPath "${{ matrix.archive }}"
+      - name: Package macOS application
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent dist/ContinuityBridge.app "${{ matrix.archive }}"
+      - name: Package Linux bundle
+        if: runner.os == 'Linux'
+        run: tar -czf "${{ matrix.archive }}" -C dist ContinuityBridge
+      - name: Upload platform bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ContinuityBridge-${{ matrix.label }}
+          path: ${{ matrix.archive }}
+          archive: false
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built bundles
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ContinuityBridge-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "ContinuityBridge $TAG" \
+              --generate-notes
+          fi
