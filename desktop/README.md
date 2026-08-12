@@ -11,14 +11,19 @@ pip install ./desktop
 continuity-bridge-desktop
 ```
 
-`continuity-bridge-gui` is a compatibility alias to the same unified Workstation.
-
-The older specialist commands remain available when a focused utility is useful:
+`continuity-bridge-gui` is a compatibility alias to the same guided Workstation. The original focused importer remains available as `continuity-bridge-import`, and the older specialist commands remain available when a focused utility is useful:
 
 ```bash
+continuity-bridge-import
 continuity-bridge-connections
 continuity-bridge-handoff
 ```
+
+## First run
+
+The primary Workstation entrypoint opens a guided first-run view until the user completes or dismisses it. It checks the bridge runtime, Lore, optional Git support, and supported AI clients, then offers a direct path to choose the first ChatGPT or Claude export.
+
+Missing components are reported as local readiness problems rather than Python/Node implementation details. The setup view can copy the required Lore setup commands and can take the user directly to Connections or History.
 
 ## Workstation
 
@@ -48,7 +53,7 @@ The Workstation has five user-facing areas.
 - searches Lore from inside ContinuityBridge;
 - displays real Lore message IDs and available source metadata;
 - retrieves surrounding context using the selected exact message ID;
-- sends the selected evidence directly into Continue.
+- sends selected evidence directly into Continue.
 
 ### Connections
 
@@ -84,22 +89,48 @@ Existing desktop preferences continue to use:
 
 ## Packaged application
 
-`desktop/ContinuityBridge.spec` builds the desktop application with:
+`packaging/continuitybridge.spec` builds the desktop application with:
 
-- the Python Workstation;
+- the Python Workstation and first-run experience;
 - the ContinuityBridge Node `bin/` + `src/` engine;
-- a platform Node.js runtime;
+- the platform Node.js 22 runtime used during the build;
 - license/notice files.
 
-At runtime, `continuity_bridge_desktop.runtime` detects PyInstaller's bundle root and directs `BridgeClient`/`HandoffClient` to the embedded Node engine automatically.
+At runtime, `continuity_bridge_desktop.runtime` detects PyInstaller's bundle root and directs `BridgeClient` and `HandoffClient` to the embedded Node engine automatically.
 
-The release workflow produces:
+`.github/workflows/release-desktop.yml` is deliberately manual/tag driven rather than a per-PR multi-platform job. A workflow dispatch or a `v*` tag builds:
 
 - Windows portable executable bundle ZIP;
 - macOS `.app` ZIP;
 - Linux portable executable bundle tarball.
 
-Lore remains an external local dependency because it is the durable continuity database/MCP service shared with authorized AI clients. Git remains optional unless repository coordinates are requested.
+A version tag additionally publishes the three archives as GitHub Release assets. Lore remains an external local dependency because it is the durable continuity database/MCP service shared with authorized AI clients. Git remains optional unless repository coordinates are requested.
+
+## Update and uninstall
+
+### Packaged releases
+
+To update, download the newer platform archive, close ContinuityBridge, and replace the old application bundle/folder. User continuity data is not stored inside the application bundle, so replacing the app does not remove Lore or workstation preferences.
+
+To uninstall the application itself, delete the extracted `ContinuityBridge` folder on Windows/Linux or `ContinuityBridge.app` on macOS.
+
+Optional user-owned local data remains separate:
+
+- `~/.continuity-bridge/` — ContinuityBridge preferences, recent-source metadata, and import manifests;
+- `~/.lore/` (or the configured `LORE_DB`) — Lore's durable evidence database;
+- any portable handoff bundles the user created.
+
+Delete those only when the user intentionally wants to remove that data as well. ContinuityBridge does not silently delete Lore history during application uninstall.
+
+### Source installs
+
+Re-run `pip install ./desktop` after updating the checkout. Remove the Python desktop package with:
+
+```bash
+pip uninstall continuity-bridge-desktop
+```
+
+The Node CLI can be unlinked/removed separately if it was installed from source.
 
 ## Runtime requirements for source installs
 
@@ -118,4 +149,4 @@ Packaged desktop releases embed Node.js and the ContinuityBridge Node CLI, remov
 npm run check:desktop
 ```
 
-The desktop release workflow additionally performs a real Linux PyInstaller bundle build on packaging-related pull requests and builds all three platform packages for manual runs/tags.
+Platform packaging is exercised when the manual/tag release workflow is run. The normal product PR CI remains focused on the Node and desktop behavior rather than building three OS release bundles for every change.
