@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_LINKS_PATH = Path.home() / ".continuity-bridge" / "repository-links.json"
 SCHEMA = "continuity-bridge/repository-links-v1"
+LINK_LIST_FIELDS = ("messageIds", "sessionIds", "handoffs", "issues", "pullRequests")
 
 
 class RepositoryLinkError(RuntimeError):
@@ -37,6 +38,21 @@ def _unique(values: Iterable[str]) -> list[str]:
             seen.add(cleaned)
             output.append(cleaned)
     return output
+
+
+def _normalize_persisted_entry(value: object) -> dict | None:
+    """Keep valid repository coordinates and normalize every list field to strings."""
+    if not isinstance(value, dict):
+        return None
+    repository = value.get("repository")
+    if not isinstance(repository, dict):
+        return None
+    normalized = dict(value)
+    normalized["repository"] = dict(repository)
+    for field in LINK_LIST_FIELDS:
+        items = value.get(field, [])
+        normalized[field] = _unique(item for item in items if isinstance(item, str)) if isinstance(items, list) else []
+    return normalized
 
 
 def _safe_port(parsed) -> int | None:
@@ -178,7 +194,12 @@ class RepositoryLinkStore:
         repositories = payload.get("repositories")
         if not isinstance(repositories, dict):
             return cls()
-        return cls({str(key): value for key, value in repositories.items() if isinstance(value, dict)})
+        normalized: dict[str, dict] = {}
+        for key, value in repositories.items():
+            entry = _normalize_persisted_entry(value)
+            if entry is not None:
+                normalized[str(key)] = entry
+        return cls(normalized)
 
     def save(self, path: str | Path | None = None) -> None:
         target = Path(path).expanduser() if path else DEFAULT_LINKS_PATH
