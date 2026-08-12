@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { buildHandoff, renderHandoffMarkdown, writeHandoff } from "../src/handoff/build.js";
 import { parseHandoffArgs, runHandoffCli } from "../src/handoff/cli.js";
+
+const CHATGPT_FIXTURE = resolve("test/fixtures/chatgpt-export");
 
 function git(cwd, ...args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", shell: false });
@@ -57,7 +59,7 @@ test("search-derived handoff spends the exact Lore message ID and scrubs remote 
       loreCommand: data.lore,
       repositoryPath: data.repo,
     });
-    assert.equal(handoff.schema, "continuity-bridge/handoff-v1");
+    assert.equal(handoff.schema, "continuity-bridge/handoff-v2");
     assert.equal(handoff.lore.evidence.length, 1);
     assert.equal(handoff.lore.evidence[0].anchor.messageId, "m-search");
     assert.equal(handoff.repository.dirty, false);
@@ -98,12 +100,13 @@ test("Markdown handoff contains bounded evidence and repository coordinates", as
     await writeHandoff(output, handoff, "json");
     const written = JSON.parse(await readFile(output, "utf8"));
     assert.equal(written.task, "Continue work");
+    assert.equal(written.attachments, null);
   } finally {
     await rm(data.directory, { recursive: true, force: true });
   }
 });
 
-test("handoff CLI validates evidence source, format aliases, and can write a portable file", async () => {
+test("handoff CLI validates evidence, formats, and explicit attachment selection", () => {
   assert.throws(
     () => parseHandoffArgs(["--task", "Missing evidence"]),
     /provide --query or at least one --message-id/,
@@ -116,7 +119,35 @@ test("handoff CLI validates evidence source, format aliases, and can write a por
     () => parseHandoffArgs(["--task", "Continue", "--message-id", "m1", "--format", "text"]),
     /--format must be markdown, md, or json/,
   );
+  assert.throws(
+    () =>
+      parseHandoffArgs([
+        "--task",
+        "Continue",
+        "--message-id",
+        "m1",
+        "--attachment-provider",
+        "chatgpt",
+      ]),
+    /requires both --attachment-provider and --attachment-export/,
+  );
+  assert.throws(
+    () =>
+      parseHandoffArgs([
+        "--task",
+        "Continue",
+        "--message-id",
+        "m1",
+        "--attachment-provider",
+        "chatgpt",
+        "--attachment-export",
+        CHATGPT_FIXTURE,
+      ]),
+    /select attachments with --attachment-id or --all-attachments/,
+  );
+});
 
+test("handoff CLI can write a portable evidence file", async () => {
   const data = await fixture();
   try {
     const output = join(data.directory, "HANDOFF.md");
@@ -138,6 +169,51 @@ test("handoff CLI validates evidence source, format aliases, and can write a por
     assert.match(captured.text, /Wrote ContinuityBridge handoff/);
     const markdown = await readFile(output, "utf8");
     assert.match(markdown, /Continue from evidence/);
+  } finally {
+    await rm(data.directory, { recursive: true, force: true });
+  }
+});
+
+test("handoff attachment bundle carries copied artifacts by relative path with hashes and no provider pointer", async () => {
+  const data = await fixture();
+  try {
+    const bundle = join(data.directory, "portable-bundle");
+    const captured = await capture(process.stdout, () =>
+      runHandoffCli([
+        "--task",
+        "Continue with the synthetic diagram",
+        "--message-id",
+        "m-explicit",
+        "--no-repo",
+        "--lore-command",
+        data.lore,
+        "--attachment-provider",
+        "chatgpt",
+        "--attachment-export",
+        CHATGPT_FIXTURE,
+        "--all-attachments",
+        "--attachment-bundle",
+        bundle,
+      ]),
+    );
+    assert.equal(captured.result, 0);
+    assert.match(captured.text, /Attachment bundle:/);
+
+    const handoffPath = join(bundle, "HANDOFF.md");
+    const markdown = await readFile(handoffPath, "utf8");
+    assert.match(markdown, /## Attachments/);
+    assert.match(markdown, /Mode: \*\*portable-bundle\*\*/);
+    assert.match(markdown, /Bundle manifest: `attachments\.json`/);
+    assert.match(markdown, /Bundle path: `attachments\//);
+    assert.match(markdown, /SHA-256: `[a-f0-9]{64}`/);
+    assert.doesNotMatch(markdown, /secret-pointer/);
+    assert.doesNotMatch(markdown, /sourceAbsolutePath/);
+
+    const manifest = JSON.parse(await readFile(join(bundle, "attachments.json"), "utf8"));
+    assert.equal(manifest.copiedCount, 1);
+    assert.equal(manifest.attachments[0].status, "copied");
+    const artifact = await readFile(join(bundle, manifest.attachments[0].relativePath), "utf8");
+    assert.match(artifact, /Synthetic ContinuityBridge diagram attachment fixture/);
   } finally {
     await rm(data.directory, { recursive: true, force: true });
   }
