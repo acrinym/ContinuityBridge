@@ -6,11 +6,12 @@ Standard-library Tkinter desktop applications for ContinuityBridge.
 pip install ./desktop
 ```
 
-Two commands are installed:
+Three commands are installed:
 
 ```bash
 continuity-bridge-gui
 continuity-bridge-connections
+continuity-bridge-handoff
 ```
 
 ## Import and browse
@@ -33,12 +34,21 @@ The GUI delegates provider parsing to ContinuityBridge's public Node CLI. It doe
 
 No client configuration is changed until the user confirms the preview. All child processes use argument arrays with `shell=False`.
 
+## Handoff Builder
+
+`continuity-bridge-handoff` builds a portable continuation package for another AI. It accepts a task plus either a Lore search query or exact message IDs, retrieves bounded source context, attaches current Git coordinates, previews the result, and writes Markdown or JSON.
+
+Repository remotes are sanitized before rendering, and absolute local repository paths are excluded unless explicitly requested. The builder does not call a model or generate an opaque summary; it carries original evidence and provenance.
+
+See [`docs/HANDOFF-BUILDER.md`](../docs/HANDOFF-BUILDER.md).
+
 ## Runtime requirements
 
 - Python 3.10+ with Tkinter
 - Node.js 22+
 - ContinuityBridge's Node CLI
 - Lore for durable memory and MCP access
+- Git for repository-aware handoffs
 - One or more optional MCP clients: Codex, Claude Code, or Cursor
 
 Conversation exports and Lore data remain local. Credentials are redacted by default before import or preview.
