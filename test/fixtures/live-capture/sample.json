@@ -1,0 +1,25 @@
+{
+  "schema": "continuity-bridge/live-capture-v1",
+  "source": "chatgpt",
+  "project": "synthetic-live-project",
+  "conversation": {
+    "id": "synthetic-live-conversation",
+    "title": "Synthetic live capture",
+    "sourceUrl": "https://user:password@chatgpt.com/c/synthetic-live-conversation?token=private#fragment",
+    "messages": [
+      {
+        "id": "user-1",
+        "role": "user",
+        "timestamp": "2026-08-12T19:00:00Z",
+        "text": "Please continue the synthetic product train."
+      },
+      {
+        "id": "assistant-1",
+        "role": "assistant",
+        "timestamp": "2026-08-12T19:00:05Z",
+        "model": "synthetic-model",
+        "text": "I can continue it. Temporary credential: sk-abcdefghijklmnopqrstuvwxyz"
+      }
+    ]
+  }
+}
