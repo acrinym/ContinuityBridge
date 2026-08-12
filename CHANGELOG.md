@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — Train 8
+
+- Added a lightweight user-owned repository continuity link store at `~/.continuity-bridge/repository-links.json` without duplicating Lore conversation content.
+- Added stable credential-free repository identity across common HTTPS and Git SSH remotes, with explicit local fallback when no remote exists.
+- Added explicit Recall actions to link real Lore message/session IDs to a repository plus optional issue and pull-request references.
+- Added repository-filtered Recall using only linked real Lore IDs.
+- Added Recall → Continue restoration of linked repository, issue, and PR context.
+- Added Continue “Find related continuity” to surface exact linked message IDs, prior handoffs, issue refs, and PR refs for the selected repository.
+- Added “Add related evidence” to reuse exact linked Lore anchors in new continuation packages.
+- Added automatic association of successfully built handoffs back to repository continuity metadata.
+- Upgraded generated handoffs to `continuity-bridge/handoff-v3` with sanitized repository issue and pull-request coordinates.
+- Added repeatable `--issue` and `--pull-request` handoff CLI options and refused unresolved repository refs instead of silently dropping them.
+- Added focused Node and desktop tests for repository identity, persistence, filtering coordinates, URL credential stripping, and handoff command construction.
+
 ## 0.7.0 — Train 7
 
 - Added one unified ContinuityBridge Workstation with Home, History, Recall, Connections, and Continue areas.
