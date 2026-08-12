@@ -10,13 +10,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
-from .mcp_control import (
-    ClientStatus,
-    ContinuityProof,
-    LoreStatus,
-    MCPControlClient,
-    MCPControlError,
-)
+from .mcp_control import ClientStatus, ContinuityProof, LoreStatus, MCPControlClient
 
 
 APP_TITLE = "ContinuityBridge MCP Control Center"
@@ -71,7 +65,7 @@ class MCPControlCenterApp:
         payload = dict(self.settings)
         payload.update(
             {
-                "lore_command": self.lore_var.get().strip() or "lore",
+                "lore_command": self._lore_command(),
                 "mcp_client": self.client_var.get(),
                 "proof_query": self.query_var.get().strip(),
             }
@@ -86,7 +80,6 @@ class MCPControlCenterApp:
         if "clam" in style.theme_names():
             style.theme_use("clam")
         style.configure("Heading.TLabel", font=("TkDefaultFont", 15, "bold"))
-        style.configure("Section.TLabel", font=("TkDefaultFont", 11, "bold"))
         style.configure("Muted.TLabel", foreground="#555555")
         style.configure("Treeview", rowheight=27)
         style.configure("Accent.TButton", padding=(12, 7))
@@ -215,8 +208,17 @@ class MCPControlCenterApp:
         ttk.Label(parent, text=label, width=18).grid(row=row, column=0, sticky="w")
         ttk.Label(parent, textvariable=variable).grid(row=row, column=1, sticky="w")
 
+    def _lore_command(self) -> str:
+        """Read the Tk-backed Lore command on the main thread."""
+        return self.lore_var.get().strip() or "lore"
+
+    @staticmethod
+    def _client_for(lore_command: str) -> MCPControlClient:
+        return MCPControlClient(lore_command=lore_command)
+
     def _client(self) -> MCPControlClient:
-        return MCPControlClient(lore_command=self.lore_var.get().strip() or "lore")
+        """Build a client from main-thread Tk state."""
+        return self._client_for(self._lore_command())
 
     @staticmethod
     def _replace_text(widget: scrolledtext.ScrolledText, text: str) -> None:
@@ -255,12 +257,13 @@ class MCPControlCenterApp:
     def _refresh_status(self) -> None:
         if self.busy:
             return
+        lore_command = self._lore_command()
         self._set_busy(True, "Checking Lore and MCP clients…")
         self._append_activity("Running local Lore and client checks.")
 
         def worker() -> None:
             try:
-                client = self._client()
+                client = self._client_for(lore_command)
                 lore_status = client.check_lore()
                 client_statuses = client.check_clients()
                 self.events.put(("status", (lore_status, client_statuses)))
@@ -350,6 +353,7 @@ class MCPControlCenterApp:
         if self.busy:
             return
         client_key = self._selected_client_key()
+        lore_command = self._lore_command()
         preview = self.preview.get("1.0", tk.END).strip()
         confirmed = messagebox.askyesno(
             APP_TITLE,
@@ -363,7 +367,7 @@ class MCPControlCenterApp:
 
         def worker() -> None:
             try:
-                result = self._client().apply_client(client_key)
+                result = self._client_for(lore_command).apply_client(client_key)
                 self.events.put(("applied", (client_key, result)))
             except Exception as error:
                 self.events.put(("error", str(error)))
@@ -377,12 +381,13 @@ class MCPControlCenterApp:
         if not query:
             messagebox.showinfo(APP_TITLE, "Enter a phrase from imported history first.")
             return
+        lore_command = self._lore_command()
         self._set_busy(True, "Searching Lore and retrieving context…")
         self._append_activity(f"Proving continuity for query: {query}")
 
         def worker() -> None:
             try:
-                proof = self._client().prove_continuity(query)
+                proof = self._client_for(lore_command).prove_continuity(query)
                 self.events.put(("proof", proof))
             except Exception as error:
                 self.events.put(("error", str(error)))
@@ -422,7 +427,10 @@ class MCPControlCenterApp:
                 elif kind == "applied":
                     client_key, result = payload  # type: ignore[misc]
                     self._append_activity(str(result))
-                    self._set_busy(False, f"Configured {CLIENT_LABELS[str(client_key)]}. Reload the client.")
+                    self._set_busy(
+                        False,
+                        f"Configured {CLIENT_LABELS[str(client_key)]}. Reload the client.",
+                    )
                     messagebox.showinfo(
                         APP_TITLE,
                         f"{result}\n\nReload {CLIENT_LABELS[str(client_key)]}, then run Check everything again.",
@@ -436,7 +444,11 @@ class MCPControlCenterApp:
                     messagebox.showerror(APP_TITLE, text)
         except queue.Empty:
             pass
-        self.root.after(100, self._poll_events)
+        except Exception as error:
+            self._append_activity(f"ERROR: event handling failed: {error}")
+            self._set_busy(False, "Operation failed.")
+        finally:
+            self.root.after(100, self._poll_events)
 
     def _on_close(self) -> None:
         try:
