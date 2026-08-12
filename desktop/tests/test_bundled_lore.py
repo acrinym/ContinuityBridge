@@ -10,6 +10,7 @@ from unittest.mock import patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+import continuity_bridge_lore  # noqa: E402
 from continuity_bridge_desktop import runtime  # noqa: E402
 from continuity_bridge_desktop.lore_runtime import initialize_lore  # noqa: E402
 
@@ -37,6 +38,23 @@ class BundledLoreRuntimeTests(unittest.TestCase):
     def test_lore_environment_override_wins(self) -> None:
         with patch.dict(runtime.os.environ, {"CONTINUITYBRIDGE_LORE": "/override/lore"}, clear=False):
             self.assertEqual(runtime.default_lore_command(), "/override/lore")
+
+    def test_packaged_lore_launcher_preserves_lore_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            node = root / "runtime" / ("node.exe" if sys.platform == "win32" else "node")
+            lore = root / "lore-runtime" / "node_modules" / "@jordanhindo" / "lore" / "dist" / "cli" / "lore.js"
+            node.parent.mkdir(parents=True)
+            lore.parent.mkdir(parents=True)
+            node.write_text("node", encoding="utf-8")
+            lore.write_text("lore", encoding="utf-8")
+            with (
+                patch.object(continuity_bridge_lore, "bundle_root", return_value=root),
+                patch.object(continuity_bridge_lore.sys, "argv", ["ContinuityBridgeLore", "serve"]),
+                patch.object(continuity_bridge_lore.os, "execv") as execv,
+            ):
+                continuity_bridge_lore.main()
+            execv.assert_called_once_with(str(node), [str(node), str(lore), "serve"])
 
     def test_initialize_lore_is_explicit_shell_free_setup_command(self) -> None:
         completed = subprocess.CompletedProcess(
