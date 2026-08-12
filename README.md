@@ -25,25 +25,25 @@ Claude export ──┘     Home · History · Recall · Connections · Continue
 
 ## The normal user journey
 
-ContinuityBridge 0.7 is one desktop application instead of three disconnected utilities.
+ContinuityBridge 0.7 is one desktop application instead of a chain of separate utilities.
 
-1. **Launch ContinuityBridge.** Home checks whether the local continuity stack is ready.
+1. **Launch ContinuityBridge.** First run checks the local continuity stack and explains what is missing.
 2. **Open History.** Choose a ChatGPT or Claude export, inspect it locally, and import or refresh it into Lore.
 3. **Open Recall.** Search the original evidence, see the real Lore message ID, and inspect surrounding context.
 4. **Open Connections.** See which supported AI clients are installed and whether Lore MCP is already configured. Preview the exact change before applying it.
-5. **Continue.** Carry a recalled message or a new Lore query into a continuation task, add repository state when relevant, optionally select local attachment artifacts, preview without copying, then build the portable package.
+5. **Continue.** Carry recalled evidence or a new Lore query into a continuation task, add repository state when relevant, optionally select local attachment artifacts, preview without copying, then build the portable package.
 
 The Workstation stores recent source/handoff paths locally so returning to a real project does not require rediscovering everything.
 
 ## Downloadable desktop packages
 
-Tagged releases build three self-contained Workstation packages:
+A tagged release builds three self-contained Workstation packages:
 
 - **Windows:** `ContinuityBridge-windows-x64.zip`
 - **macOS:** `ContinuityBridge-macos.zip` containing `ContinuityBridge.app`
 - **Linux:** `ContinuityBridge-linux-x64.tar.gz`
 
-The packaged application contains the ContinuityBridge Node engine and its Node.js runtime. A packaged user does **not** need to clone this repository, run `npm install`, or understand the Python/Node split.
+The packaged application contains the ContinuityBridge Node engine and its Node.js 22 runtime. A packaged user does **not** need to clone this repository, run `npm install`, or understand the Python/Node split.
 
 Lore remains a separate local dependency because it is the durable evidence database and MCP service shared by authorized AI clients.
 
@@ -54,13 +54,25 @@ npm install -g @jordanhindo/lore
 lore setup
 ```
 
-The Workstation Home screen detects Lore and provides copyable setup help when it is missing.
+The first-run Workstation view detects Lore and provides copyable setup help when it is missing. Git is optional unless you want current repository coordinates in generated handoffs.
 
-Git is optional unless you want current repository coordinates in generated handoffs.
+## Update and uninstall
+
+For a packaged release, close ContinuityBridge, download the newer archive, and replace the old application bundle/folder.
+
+To uninstall the application, delete that bundle/folder. User-owned continuity data deliberately remains separate:
+
+- `~/.continuity-bridge/` — preferences, recent-source metadata, and import manifests;
+- `~/.lore/` or configured `LORE_DB` — Lore's durable evidence database;
+- any portable handoff bundles you created.
+
+Delete those only when you intentionally want to remove the associated data as well. Replacing or uninstalling the application does not silently delete conversation evidence.
+
+See [`docs/WORKSTATION.md`](docs/WORKSTATION.md) for the complete desktop user guide.
 
 ## Source installation
 
-Developers and source users can still install the individual packages directly.
+Developers and source users can still install the packages directly.
 
 ```bash
 git clone https://github.com/acrinym/ContinuityBridge.git
@@ -71,14 +83,17 @@ pip install ./desktop
 continuity-bridge-desktop
 ```
 
-`continuity-bridge-gui` is retained as a compatibility alias and now opens the same unified Workstation.
+`continuity-bridge-gui` is retained as a compatibility alias and opens the same guided Workstation.
 
-The specialist utilities remain available for compatibility and troubleshooting:
+Focused compatibility/troubleshooting entrypoints remain available:
 
 ```bash
+continuity-bridge-import
 continuity-bridge-connections
 continuity-bridge-handoff
 ```
+
+A normal user should not need to switch among them.
 
 ## Workstation areas
 
@@ -138,7 +153,7 @@ Connections can:
 
 ### Continue
 
-Continue combines the existing Handoff Builder and Safe Attachment Continuity product paths.
+Continue combines the Handoff Builder and Safe Attachment Continuity product paths.
 
 A continuation package can include:
 
@@ -286,7 +301,7 @@ npm run smoke
 npm run check:desktop
 ```
 
-Desktop packaging is defined in `desktop/ContinuityBridge.spec` and `.github/workflows/desktop-release.yml`. Pull requests that touch the desktop/runtime packaging build the Linux application bundle as a real packaging check; manual runs and version tags build all supported platforms.
+Desktop packaging is defined by `packaging/continuitybridge.spec` and `.github/workflows/release-desktop.yml`. The three-platform package build is manual/tag driven rather than part of every product PR. A `v*` tag additionally publishes the built archives as GitHub Release assets.
 
 ## Product roadmap
 
