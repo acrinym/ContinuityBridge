@@ -13,7 +13,7 @@ Usage:
   continuity-bridge capture serve --to-lore [options]
 
 Mutation options:
-  --to-lore                 Required for submit/serve; writes through lore push.
+  --to-lore                 Required for submit/serve; writes through \`lore push\`.
   --lore-command <path>     Lore executable to invoke (default: lore).
   --project <name>          Override the Lore project for captured conversations.
   --source <name>           Override the Lore source namespace.
@@ -62,7 +62,9 @@ export function parseCaptureArgs(argv) {
     reimport: false,
     redact: true,
     port: 43119,
+    portSet: false,
     token: null,
+    tokenSet: false,
     json: false,
   };
   const withValue = new Set(["--lore-command", "--project", "--source", "--manifest", "--port", "--token"]);
@@ -76,11 +78,15 @@ export function parseCaptureArgs(argv) {
       if (value === "--project") parsed.project = next;
       if (value === "--source") parsed.source = next;
       if (value === "--manifest") parsed.manifestPath = next;
-      if (value === "--token") parsed.token = next;
+      if (value === "--token") {
+        parsed.token = next;
+        parsed.tokenSet = true;
+      }
       if (value === "--port") {
         const port = Number.parseInt(next, 10);
         if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be 0-65535");
         parsed.port = port;
+        parsed.portSet = true;
       }
       continue;
     }
@@ -105,7 +111,7 @@ export function parseCaptureArgs(argv) {
   if (!parsed.manifestEnabled && parsed.manifestPath) {
     throw new Error("--manifest and --no-manifest cannot be used together");
   }
-  if (command !== "serve" && (parsed.token || parsed.port !== 43119)) {
+  if (command !== "serve" && (parsed.tokenSet || parsed.portSet)) {
     throw new Error("--token and --port are only valid with capture serve");
   }
   return parsed;
