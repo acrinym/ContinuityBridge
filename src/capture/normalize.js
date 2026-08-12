@@ -4,6 +4,7 @@ import { computeMessageId } from "../lore/records.js";
 
 export const LIVE_CAPTURE_SCHEMA = "continuity-bridge/live-capture-v1";
 const MAX_MESSAGE_CHARS = 1_000_000;
+const SOURCE_IDENTIFIER = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -41,12 +42,12 @@ function sanitizeSourceUrl(value) {
   }
 }
 
-function normalizedProvider(value) {
-  const provider = String(value ?? "").trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(provider)) {
-    throw new Error("live capture source must be a short provider identifier");
+function normalizedSourceIdentifier(value, label = "source") {
+  const source = String(value ?? "").trim().toLowerCase();
+  if (!SOURCE_IDENTIFIER.test(source)) {
+    throw new Error(`live capture ${label} must be a short provider identifier`);
   }
-  return provider;
+  return source;
 }
 
 function normalizedConversation(payload) {
@@ -56,7 +57,7 @@ function normalizedConversation(payload) {
   if (payload.schema !== LIVE_CAPTURE_SCHEMA) {
     throw new Error(`unsupported live capture schema: ${String(payload.schema ?? "missing")}`);
   }
-  const source = normalizedProvider(payload.source);
+  const source = normalizedSourceIdentifier(payload.source);
   const conversation = payload.conversation;
   if (!conversation || typeof conversation !== "object" || Array.isArray(conversation)) {
     throw new Error("live capture payload requires conversation metadata");
@@ -102,13 +103,16 @@ export function inspectLiveCapture(payload) {
 export function liveCaptureToLoreBatch(payload, options = {}) {
   const summary = inspectLiveCapture(payload);
   const conversation = payload.conversation;
-  const source = String(options.source ?? `${summary.source}-live`).trim();
-  if (!source) throw new Error("live capture Lore source cannot be empty");
+  const source = normalizedSourceIdentifier(
+    options.source ?? `${summary.source}-live`,
+    "Lore source",
+  );
   const sourceFileId = `live:${source}:${summary.conversationId}`;
   const sessionId = sourceFileId;
   const project = String(
     options.project ?? payload.project ?? `live://${summary.source}/${slug(summary.title)}`,
   ).trim();
+  if (!project) throw new Error("live capture Lore project cannot be empty");
   const messages = [];
   let previousUuid = null;
 
