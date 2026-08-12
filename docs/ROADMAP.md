@@ -14,7 +14,7 @@ The roadmap is organized around user-visible product capabilities. Tests and saf
 6. **No audit-the-audit machinery.** Build product behavior. Add focused tests and guardrails only where they protect real user-facing behavior.
 7. **No private implementation leakage.** Public fixtures, docs, examples, and identifiers stay synthetic and generic.
 
-## Completed foundation
+## Completed product trains
 
 ### 0.1 — ChatGPT → Lore continuity
 
@@ -83,51 +83,52 @@ The roadmap is organized around user-visible product capabilities. Tests and saf
 - Ambiguous multi-repository evidence requires explicit repository selection.
 - Query-derived handoff anchors are linked using the exact resolved Lore message IDs.
 
-Success condition achieved: repository/code context can narrow and restore continuity while Lore remains the sole conversation evidence store.
+### 0.9 — Explicit live capture
+
+- Public `continuity-bridge/live-capture-v1` payload contract.
+- Same normalized Lore batch and incremental checkpoint boundary as imported history.
+- Non-mutating inspect, explicit one-shot submit, and authenticated loopback receiver.
+- Workstation Capture area with OFF/ON state, exact destination, port/token, manual JSON path, and explicit Start/Stop.
+- Manifest V3 browser companion with one-shot extraction only after a user click.
+- Supported visible ChatGPT/Claude message markers only; unsupported structures refuse instead of guessing.
+- Credential/query/fragment stripping, default message redaction, and Workstation-owned receiver lifecycle.
+
+Success condition achieved: supported active conversations can be deliberately refreshed into Lore and retrieved through the same Recall surface as imported history, with no hidden always-on capture service.
 
 ## Active train
 
-### 0.9 — Explicit live capture
+### 1.0 — Finished public continuity workstation
 
-Goal: let a user deliberately carry supported active conversations into Lore without waiting for a full export, hidden scraping, or provider-private APIs.
+Goal: remove the last toolchain-shaped gap from the downloadable app and make the packaged product usable without a source checkout, npm-based Lore install, or architecture knowledge.
 
 Ship:
 
-- Public `continuity-bridge/live-capture-v1` payload contract for ordered conversation messages.
-- Normalization into the same Lore batch boundary as imported history.
-- Shared incremental resume-token/checkpoint behavior so unchanged captures are skipped.
-- `continuity-bridge capture inspect` for non-mutating validation.
-- `continuity-bridge capture submit ... --to-lore` for explicit one-shot local/desktop ingestion.
-- `continuity-bridge capture serve --to-lore` as an authenticated `127.0.0.1`-only receiver.
-- A clear Workstation Capture area with OFF/ON state, exact destination, port, fresh token, Start/Stop, manual file path, and last result.
-- A bundled Manifest V3 browser companion that performs one-shot extraction only after an explicit Capture click.
-- Supported ChatGPT/Claude browser capture only when recognized visible message markers are present; otherwise refuse rather than guess.
-- Credential/query/fragment stripping from captured source URLs and existing credential redaction on message text by default.
-- Workstation-owned receiver lifecycle: closing the application stops its receiver child process.
+- Pin and install `@jordanhindo/lore` 0.2.0 during each platform release build so native runtime dependencies match Windows, macOS, or Linux.
+- Bundle the complete Lore runtime alongside the existing embedded Node runtime and ContinuityBridge engine.
+- Add a stable packaged `ContinuityBridgeLore` executable that forwards Lore CLI/MCP arguments into the bundled runtime while preserving stdio semantics.
+- Prefer the bundled Lore launcher automatically in packaged Workstation builds while preserving explicit custom Lore command overrides and PATH-based source installs.
+- Migrate the old saved default value `lore` to the bundled launcher when opening a packaged application.
+- Configure Codex, Claude Code, and Cursor against the same stable packaged Lore executable rather than requiring a globally installed npm command.
+- Add an explicit first-run **Initialize local memory** action that runs Lore setup through the selected local runtime; it detects/indexes supported local transcript sources and does not mutate AI-client configuration.
+- Replace packaged setup instructions that previously required `npm install -g @jordanhindo/lore`.
+- Include Lore license/third-party component notice with release documentation and retain packaged dependency license files.
+- Verify the bundled Lore launcher during the existing manual/tag-driven platform release workflow before an archive is published.
+- Version the Workstation, Node package, capture companion, and macOS bundle consistently at 1.0.0.
 
-Success condition: start Capture, explicitly capture a supported visible conversation into Lore, see unchanged repeated capture skip through the incremental checkpoint, capture a new message as an update, retrieve it through Recall, then stop Capture and leave no listener running.
+Release acceptance journey:
 
-## Next product train
+1. Download a Windows/macOS/Linux ContinuityBridge package and launch it without installing Node or Lore separately.
+2. First run reports the bundled bridge/Lore runtime and offers **Initialize local memory**.
+3. Initialize local memory or bring evidence in through History/Capture.
+4. Search exact evidence in Recall and optionally narrow it by repository context.
+5. Preview and configure an installed supported AI client to the packaged Lore MCP command.
+6. Prove the client/Lore continuity path from a real returned message ID.
+7. Build an evidence-backed continuation package with optional repository coordinates and safe local artifacts.
+8. Update or remove the application without silently deleting user-owned Lore/ContinuityBridge data.
 
-### 1.0 — Finished public continuity workstation
+## Post-1.0 product directions
 
-Release criteria:
-
-- Import/browse supported chat exports.
-- Incrementally refresh existing history.
-- Explicitly capture supported active conversations with clear on/off and destination state.
-- Search and inspect source evidence inside the Workstation.
-- Narrow recall and continuation by repository/code context.
-- Configure and prove MCP access from supported clients.
-- Build evidence-backed handoffs tied to code state.
-- Carry safe local attachments when explicitly requested.
-- Downloadable Windows, macOS, and Linux application packages.
-- Clear update/uninstall guidance for packaged and source installs.
-- Documentation that takes a new user from download to proven cross-AI recall without requiring architecture knowledge.
-
-## Later directions
-
-These are product opportunities, not commitments:
+These are opportunities, not commitments:
 
 - Additional providers and import families with stable exports or local transcript stores.
 - IDE-native Handoff Builder panels.
