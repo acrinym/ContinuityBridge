@@ -25,10 +25,12 @@ class RepositoryLinkStoreTests(unittest.TestCase):
         self.assertEqual(normalize_remote("ssh://deploy:secret@github.com/acme/widget.git"), "github.com/acme/widget")
         self.assertNotIn("secret", normalize_remote("ssh://deploy:secret@github.com/acme/widget.git") or "")
 
-    def test_sanitizes_explicit_refs_without_credentials(self) -> None:
+    def test_sanitizes_explicit_refs_without_credentials_queries_or_fragments(self) -> None:
         self.assertEqual(sanitize_reference("#42"), "#42")
         self.assertEqual(
-            sanitize_reference("https://token@github.com/acme/widget/pull/8#discussion"),
+            sanitize_reference(
+                "https://token@github.com/acme/widget/pull/8?access_token=secret#discussion"
+            ),
             "https://github.com/acme/widget/pull/8",
         )
 
