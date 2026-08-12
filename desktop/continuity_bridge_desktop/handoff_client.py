@@ -20,6 +20,8 @@ class HandoffOptions:
     repository_path: str | None = None
     no_repository: bool = False
     include_local_path: bool = False
+    issue_refs: tuple[str, ...] = ()
+    pull_request_refs: tuple[str, ...] = ()
     lore_command: str = "lore"
     limit: int = 5
     context_messages: int = 11
@@ -50,6 +52,8 @@ class HandoffClient:
         task = options.task.strip()
         query = (options.query or "").strip()
         message_ids = tuple(item.strip() for item in options.message_ids if item.strip())
+        issue_refs = tuple(item.strip() for item in options.issue_refs if item.strip())
+        pull_request_refs = tuple(item.strip() for item in options.pull_request_refs if item.strip())
         attachment_ids = tuple(item.strip() for item in options.attachment_ids if item.strip())
         attachment_provider = (options.attachment_provider or "").strip().lower()
         attachment_export = (options.attachment_export or "").strip()
@@ -65,6 +69,8 @@ class HandoffClient:
             raise ValueError("Choose a repository or omit repository coordinates, not both.")
         if options.no_repository and options.include_local_path:
             raise ValueError("A local repository path cannot be included when repository coordinates are omitted.")
+        if options.no_repository and (issue_refs or pull_request_refs):
+            raise ValueError("Issue and pull request references require repository coordinates.")
         if options.output_format not in {"markdown", "md", "json"}:
             raise ValueError("Output format must be markdown or json.")
 
@@ -100,6 +106,10 @@ class HandoffClient:
             command.extend(["--repo", options.repository_path])
         if options.include_local_path:
             command.append("--include-local-path")
+        for issue_ref in issue_refs:
+            command.extend(["--issue", issue_ref])
+        for pull_request_ref in pull_request_refs:
+            command.extend(["--pull-request", pull_request_ref])
 
         if has_attachments:
             command.extend(["--attachment-provider", attachment_provider])
