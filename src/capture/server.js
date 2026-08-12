@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { ingestLiveCapture } from "./ingest.js";
+import { inspectLiveCapture } from "./normalize.js";
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
@@ -68,8 +69,16 @@ export function createCaptureServer(options = {}) {
       return;
     }
 
+    let payload;
     try {
-      const payload = await readJsonBody(request);
+      payload = await readJsonBody(request);
+      inspectLiveCapture(payload);
+    } catch (error) {
+      json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
+    try {
       const execute = () => ingest(payload, options.ingestOptions ?? {});
       const resultPromise = queue.then(execute, execute);
       queue = resultPromise.then(() => undefined, () => undefined);
@@ -80,7 +89,9 @@ export function createCaptureServer(options = {}) {
         messageCount: result.messageCount,
       });
     } catch (error) {
-      json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+      json(response, 500, {
+        error: `capture ingestion failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
     }
   });
   return server;
