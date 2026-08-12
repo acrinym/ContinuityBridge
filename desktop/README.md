@@ -1,54 +1,121 @@
 # ContinuityBridge Desktop
 
-Standard-library Tkinter desktop applications for ContinuityBridge.
+ContinuityBridge 0.7 ships one primary desktop workstation for the full local continuity journey.
+
+## Launch
+
+From a Python/source install:
 
 ```bash
 pip install ./desktop
+continuity-bridge-desktop
 ```
 
-Three commands are installed:
+`continuity-bridge-gui` is a compatibility alias to the same unified Workstation.
+
+The older specialist commands remain available when a focused utility is useful:
 
 ```bash
-continuity-bridge-gui
 continuity-bridge-connections
 continuity-bridge-handoff
 ```
 
-## Import and browse
+## Workstation
 
-`continuity-bridge-gui` opens the ChatGPT and Claude export browser. It analyzes ZIP, folder, and JSON exports, previews and filters conversations, then imports selected history into Lore or portable JSONL.
+The Workstation has five user-facing areas.
 
-The GUI delegates provider parsing to ContinuityBridge's public Node CLI. It does not maintain a second parser.
+### Home
 
-## MCP Control Center
+- checks the embedded/source ContinuityBridge runtime;
+- checks Lore CLI/database/MCP readiness;
+- detects Git;
+- detects Codex, Claude Code, and Cursor and whether Lore is configured;
+- shows recent provider export sources;
+- shows recent generated handoffs;
+- provides copyable setup help when the local continuity stack is incomplete.
 
-`continuity-bridge-connections` opens the local connection manager. It:
+### History
 
-- detects Lore, its local database, CLI health, and whether `lore serve` can start;
-- detects Codex, Claude Code, and Cursor;
-- previews the exact Lore MCP configuration before changing anything;
-- uses each supported client's official MCP CLI where available;
-- merges Cursor's global `~/.cursor/mcp.json` safely and creates a timestamped backup;
-- re-checks whether each client reports Lore configured;
-- proves continuity by searching Lore, taking a real returned message ID, and retrieving its context.
+- opens ChatGPT or Claude ZIP/folder/JSON exports;
+- analyzes, filters, and previews conversations locally;
+- imports selected or complete history into Lore;
+- optionally writes JSONL;
+- keeps credential-like redaction enabled by default;
+- refreshes an existing source through the same incremental/resume contract used by the CLI.
 
-No client configuration is changed until the user confirms the preview. All child processes use argument arrays with `shell=False`.
+### Recall
 
-## Handoff Builder
+- searches Lore from inside ContinuityBridge;
+- displays real Lore message IDs and available source metadata;
+- retrieves surrounding context using the selected exact message ID;
+- sends the selected evidence directly into Continue.
 
-`continuity-bridge-handoff` builds a portable continuation package for another AI. It accepts a task plus either a Lore search query or exact message IDs, retrieves bounded source context, attaches current Git coordinates, previews the result, and writes Markdown or JSON.
+### Connections
 
-Repository remotes are sanitized before rendering, and absolute local repository paths are excluded unless explicitly requested. The builder does not call a model or generate an opaque summary; it carries original evidence and provenance.
+- shows supported client installation/configuration state;
+- previews the exact Lore MCP configuration and target path;
+- requires confirmation before mutation;
+- configures Codex, Claude Code, or Cursor through the existing safe client-specific logic.
 
-See [`docs/HANDOFF-BUILDER.md`](../docs/HANDOFF-BUILDER.md).
+### Continue
 
-## Runtime requirements
+- accepts a next task plus Lore search query and/or exact message IDs;
+- attaches current Git repository coordinates when requested;
+- scans supported provider exports for local attachment references;
+- lets the user explicitly select attachment artifacts;
+- previews handoffs without copying files;
+- builds Markdown/JSON continuation packages and verified attachment bundles.
+
+## Local workstation state
+
+Return-user convenience state is stored in:
+
+```text
+~/.continuity-bridge/workstation.json
+```
+
+It contains recent local source/handoff paths and last-import metadata. It is not a second conversation database and does not copy provider history. Lore remains the durable evidence store.
+
+Existing desktop preferences continue to use:
+
+```text
+~/.continuity-bridge/desktop.json
+```
+
+## Packaged application
+
+`desktop/ContinuityBridge.spec` builds the desktop application with:
+
+- the Python Workstation;
+- the ContinuityBridge Node `bin/` + `src/` engine;
+- a platform Node.js runtime;
+- license/notice files.
+
+At runtime, `continuity_bridge_desktop.runtime` detects PyInstaller's bundle root and directs `BridgeClient`/`HandoffClient` to the embedded Node engine automatically.
+
+The release workflow produces:
+
+- Windows portable executable bundle ZIP;
+- macOS `.app` ZIP;
+- Linux portable executable bundle tarball.
+
+Lore remains an external local dependency because it is the durable continuity database/MCP service shared with authorized AI clients. Git remains optional unless repository coordinates are requested.
+
+## Runtime requirements for source installs
 
 - Python 3.10+ with Tkinter
 - Node.js 22+
-- ContinuityBridge's Node CLI
-- Lore for durable memory and MCP access
-- Git for repository-aware handoffs
-- One or more optional MCP clients: Codex, Claude Code, or Cursor
+- ContinuityBridge Node CLI
+- Lore for durable memory/search/MCP access
+- Git only for repository-aware handoffs
+- one or more optional supported AI clients: Codex, Claude Code, Cursor
 
-Conversation exports and Lore data remain local. Credentials are redacted by default before import or preview.
+Packaged desktop releases embed Node.js and the ContinuityBridge Node CLI, removing those two source-install requirements for normal end users.
+
+## Validation
+
+```bash
+npm run check:desktop
+```
+
+The desktop release workflow additionally performs a real Linux PyInstaller bundle build on packaging-related pull requests and builds all three platform packages for manual runs/tags.
