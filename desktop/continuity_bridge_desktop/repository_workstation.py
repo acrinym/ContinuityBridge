@@ -7,7 +7,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
-from .handoff_client import HandoffOptions
+from .handoff_client import HandoffClient, HandoffOptions
 from .lore_client import LoreHit, LoreLibraryClient
 from .repository_links import GitRepositoryClient, RepositoryContext, RepositoryLinkStore
 from .workstation import APP_TITLE, ContinuityWorkstation
@@ -195,7 +195,23 @@ class RepositoryAwareWorkstation(ContinuityWorkstation):
         )
         if not keys:
             return
-        key = keys[0]
+
+        selected_filter_key = self._selected_repository_filter_key()
+        if selected_filter_key and selected_filter_key in keys:
+            key = selected_filter_key
+        elif len(keys) == 1:
+            key = keys[0]
+        else:
+            self.current_related_key = None
+            self._replace_text(
+                self.continue_related_text,
+                "This evidence is linked to multiple repositories. Choose one in the Recall repository filter, then choose Continue with selected evidence again.",
+            )
+            self.status_var.set(
+                f"Evidence is linked to {len(keys)} repositories; select a repository filter before restoring code context."
+            )
+            return
+
         related = self.repository_links.related(key)
         repository = related.get("repository")
         if isinstance(repository, dict) and repository.get("localPath"):
@@ -287,6 +303,26 @@ class RepositoryAwareWorkstation(ContinuityWorkstation):
             pull_request_refs=_split_refs(self.continue_pr_refs_var.get()),
         )
 
+    def _build_continue_package(self) -> None:
+        try:
+            options = self._make_handoff_options(preview=False)
+            client = HandoffClient()
+            client.build_command(options)
+        except ValueError as error:
+            messagebox.showerror(APP_TITLE, str(error))
+            return
+        self.status_var.set("Building continuation package…")
+
+        def build() -> dict:
+            result = client.generate(options)
+            return {
+                "result": result,
+                "options": options,
+                "resolved_message_ids": client.resolved_evidence_ids(options),
+            }
+
+        self._run_async("handoff_build", build)
+
     def _event_handoff_build(self, ok: bool, payload: object) -> None:
         super()._event_handoff_build(ok, payload)
         if not ok or not isinstance(payload, dict):
@@ -302,12 +338,20 @@ class RepositoryAwareWorkstation(ContinuityWorkstation):
         else:
             return
 
+        resolved = payload.get("resolved_message_ids")
+        resolved_message_ids = tuple(
+            str(item).strip()
+            for item in resolved
+            if str(item).strip()
+        ) if isinstance(resolved, (tuple, list)) else ()
+        linked_message_ids = resolved_message_ids or options.message_ids
+
         def link_handoff() -> dict:
             context = GitRepositoryClient().inspect(options.repository_path or ".")
             self.repository_links.link_handoff(
                 context,
                 path=handoff_path,
-                message_ids=options.message_ids,
+                message_ids=linked_message_ids,
                 issue_refs=options.issue_refs,
                 pull_request_refs=options.pull_request_refs,
             )
