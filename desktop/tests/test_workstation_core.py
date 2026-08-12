@@ -29,7 +29,7 @@ class WorkstationStateTests(unittest.TestCase):
 
             loaded = WorkstationState.load(state_path)
             self.assertTrue(loaded.first_run_complete)
-            self.assertEqual(loaded.recent_sources[0]["conversation_count"], None)
+            self.assertEqual(loaded.recent_sources[0]["conversation_count"], 42)
             self.assertEqual(loaded.last_import["selected_count"], 42)
             self.assertEqual(loaded.recent_handoffs[0]["task"], "Continue the product train")
             self.assertEqual(loaded.recent_handoffs[0]["path"], str(handoff))
