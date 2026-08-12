@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "ContinuityBridge Capture",
+  "version": "0.9.0",
+  "description": "Explicitly send the currently visible supported AI conversation to a local ContinuityBridge receiver.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "action": {
+    "default_title": "ContinuityBridge Capture",
+    "default_popup": "popup.html"
+  }
+}
