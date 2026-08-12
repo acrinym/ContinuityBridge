@@ -1,6 +1,6 @@
 """Source-checkout launcher for the unified ContinuityBridge workstation."""
 
-from continuity_bridge_desktop.workstation import main
+from continuity_bridge_desktop.onboarding import main
 
 
 if __name__ == "__main__":
