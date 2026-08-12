@@ -42,9 +42,11 @@ test("repository refs are rejected when repository coordinates are omitted", () 
   );
 });
 
-test("repository reference sanitizer strips URL credentials and fragments", () => {
+test("repository reference sanitizer strips URL credentials queries and fragments", () => {
   assert.equal(
-    sanitizeRepositoryReference("https://token@example.com/acme/widget/pull/7#discussion"),
+    sanitizeRepositoryReference(
+      "https://token@example.com/acme/widget/pull/7?access_token=secret#discussion",
+    ),
     "https://example.com/acme/widget/pull/7",
   );
   assert.equal(sanitizeRepositoryReference("#123"), "#123");
