@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 import subprocess
 from typing import Sequence
 
@@ -163,6 +164,53 @@ class HandoffClient:
         if not isinstance(parsed, dict) or not isinstance(parsed.get("attachments"), list):
             raise BridgeClientError("attachment inspection returned an unsupported response")
         return parsed
+
+    @staticmethod
+    def output_path(options: HandoffOptions) -> Path | None:
+        """Return the concrete handoff file path for a mutating build."""
+        if options.output_path:
+            return Path(options.output_path).expanduser()
+        if options.attachment_bundle:
+            extension = "json" if options.output_format == "json" else "md"
+            return Path(options.attachment_bundle).expanduser() / f"HANDOFF.{extension}"
+        return None
+
+    @classmethod
+    def resolved_evidence_ids(cls, options: HandoffOptions) -> tuple[str, ...]:
+        """Read exact resolved anchor IDs from the handoff that was actually written."""
+        path = cls.output_path(options)
+        if path is None:
+            return ()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return ()
+
+        if options.output_format == "json" or path.suffix.lower() == ".json":
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                return ()
+            lore = payload.get("lore") if isinstance(payload, dict) else None
+            evidence = lore.get("evidence") if isinstance(lore, dict) else None
+            if not isinstance(evidence, list):
+                return ()
+            identifiers: list[str] = []
+            for item in evidence:
+                anchor = item.get("anchor") if isinstance(item, dict) else None
+                message_id = anchor.get("messageId") if isinstance(anchor, dict) else None
+                if message_id:
+                    cleaned = str(message_id).strip()
+                    if cleaned and cleaned not in identifiers:
+                        identifiers.append(cleaned)
+            return tuple(identifiers)
+
+        identifiers = []
+        for message_id in re.findall(r"^- Anchor message: `([^`]+)`\s*$", text, flags=re.MULTILINE):
+            cleaned = message_id.strip()
+            if cleaned and cleaned not in identifiers:
+                identifiers.append(cleaned)
+        return tuple(identifiers)
 
     def generate(self, options: HandoffOptions) -> subprocess.CompletedProcess[str]:
         return self.run(self.build_command(options))
