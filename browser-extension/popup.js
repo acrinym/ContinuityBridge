@@ -30,15 +30,20 @@ async function extractVisibleConversation() {
     const raw = [
       ...document.querySelectorAll('[data-testid="user-message"], [data-testid="assistant-message"], .font-claude-message'),
     ];
-    const seen = new Set();
+    const seenElements = new Set();
+    const seenMessages = new Set();
     nodes = raw
-      .map((element) => {
+      .map((candidate) => {
+        const explicit = candidate.closest('[data-testid="user-message"], [data-testid="assistant-message"]');
+        const element = explicit || candidate;
+        if (seenElements.has(element)) return null;
+        seenElements.add(element);
         const testId = element.getAttribute("data-testid") || "";
         const role = testId.includes("user") ? "user" : "assistant";
         const text = (element.innerText || element.textContent || "").trim();
         const key = `${role}\u0000${text}`;
-        if (!text || seen.has(key)) return null;
-        seen.add(key);
+        if (!text || seenMessages.has(key)) return null;
+        seenMessages.add(key);
         return { element, role };
       })
       .filter(Boolean);
