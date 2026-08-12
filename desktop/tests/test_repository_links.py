@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -33,6 +34,50 @@ class RepositoryLinkStoreTests(unittest.TestCase):
             ),
             "https://github.com/acme/widget/pull/8",
         )
+
+    def test_load_normalizes_malformed_nested_list_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "repository-links.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema": "continuity-bridge/repository-links-v1",
+                        "repositories": {
+                            "remote:github.com/acme/widget": {
+                                "repository": {"name": "widget", "remote": "github.com/acme/widget"},
+                                "messageIds": None,
+                                "sessionIds": ["session-1", 42, ""],
+                                "handoffs": "not-a-list",
+                                "issues": ["#42", None],
+                                "pullRequests": [],
+                            },
+                            "invalid": {"messageIds": ["orphan"]},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = RepositoryLinkStore.load(path)
+            related = loaded.related("remote:github.com/acme/widget")
+            self.assertEqual(related["messageIds"], [])
+            self.assertEqual(related["sessionIds"], ["session-1"])
+            self.assertEqual(related["handoffs"], [])
+            self.assertEqual(related["issues"], ["#42"])
+            self.assertNotIn("invalid", loaded.repositories)
+
+            # Normalized state stays safe for later mutation instead of failing on None/string fields.
+            context = RepositoryContext(
+                key="remote:github.com/acme/widget",
+                name="widget",
+                remote="github.com/acme/widget",
+                branch="main",
+                head="abc123",
+                dirty=False,
+                local_path="/work/widget",
+            )
+            loaded.link_evidence(context, message_id="message-1")
+            self.assertTrue(loaded.matches(context.key, message_id="message-1"))
 
     def test_links_survive_restart_and_match_message_or_session(self) -> None:
         context = RepositoryContext(
