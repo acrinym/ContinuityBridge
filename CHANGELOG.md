@@ -7,6 +7,16 @@
 - Added guarded merge-commit automation after exact-head CI success and paginated dependency-only file validation.
 - Added a privileged-workflow safety test and operating documentation.
 
+## 0.3.0 — Train 3
+
+- Added a desktop MCP Control Center for Lore, Codex, Claude Code, and Cursor.
+- Added Lore executable, database, CLI, and stdio MCP startup checks.
+- Added exact configuration previews and explicit user-confirmed setup actions.
+- Added safe Cursor JSON merging with timestamped backups.
+- Added client configuration detection and reload guidance.
+- Added end-to-end continuity proof through Lore search and context retrieval using real returned IDs.
+- Added command-construction, configuration-preservation, malformed-config, health, and proof tests.
+
 ## 0.2.0 — Train 2
 
 - Added an installable Tkinter desktop application for browsing, searching, previewing, and selectively importing conversations.
