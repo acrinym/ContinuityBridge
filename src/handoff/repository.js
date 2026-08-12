@@ -50,10 +50,11 @@ export function sanitizeRepositoryReference(reference) {
     const parsed = new URL(value);
     parsed.username = "";
     parsed.password = "";
+    parsed.search = "";
     parsed.hash = "";
     return parsed.toString();
   } catch {
-    return value.replace(/^(https?:\/\/)[^/@]+@/i, "$1");
+    return value.replace(/^(https?:\/\/)[^/@]+@/i, "$1").replace(/[?#].*$/, "");
   }
 }
 
