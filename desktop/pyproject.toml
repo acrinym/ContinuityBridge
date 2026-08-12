@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "continuity-bridge-desktop"
-version = "0.8.0"
-description = "Unified local desktop workstation for importing AI history, recalling Lore evidence by repository context, connecting AI clients, and building portable continuation packages."
+version = "0.9.0"
+description = "Unified local desktop workstation for importing AI history, explicit live capture, repository-aware Lore recall, AI-client connections, and portable continuation packages."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
