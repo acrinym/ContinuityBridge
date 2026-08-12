@@ -34,7 +34,7 @@ test("privileged Dependabot automation never checks out or executes PR code", as
   assert.doesNotMatch(workflow, /python\s+-m|pytest|pip install/i);
 });
 
-test("automatic merge is bounded by update type, diffs, CI, and head SHA", async () => {
+test("automatic merge is bounded by update type, paginated diffs, CI, and head SHA", async () => {
   const workflow = await readFile(workflowPath, "utf8");
 
   assert.match(
@@ -44,9 +44,12 @@ test("automatic merge is bounded by update type, diffs, CI, and head SHA", async
   assert.match(workflow, /version-update:semver-patch\|version-update:semver-minor/);
   assert.doesNotMatch(workflow, /semver-major\).*eligible=true/);
   assert.match(workflow, /Verify changed-file and workflow-diff boundaries/);
+  assert.match(workflow, /gh api --paginate/);
+  assert.match(workflow, /jq -s 'add'/);
   assert.match(workflow, /not an action reference/);
   assert.match(workflow, /select\(\.name == "CI"\)/);
   assert.match(workflow, /head_sha="\$HEAD_SHA"/);
   assert.match(workflow, /--match-head-commit "\$HEAD_SHA"/);
-  assert.match(workflow, /--squash/);
+  assert.match(workflow, /--merge/);
+  assert.doesNotMatch(workflow, /--squash/);
 });
