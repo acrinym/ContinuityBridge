@@ -6,11 +6,11 @@ The roadmap is organized around user-visible product capabilities. Tests and saf
 
 ## Product principles
 
-1. **User-owned continuity.** Conversation records, indexes, manifests, generated handoffs, local workstation state, and explicitly bundled artifacts stay under the user's control.
+1. **User-owned continuity.** Conversation records, indexes, manifests, generated handoffs, local workstation state, repository links, and explicitly bundled artifacts stay under the user's control.
 2. **Evidence before summaries.** Preserve original messages, provenance, stable identifiers, and artifact hashes so another AI can inspect the source instead of trusting an opaque rewrite.
 3. **One store, not another store.** Lore remains the durable local memory/search/MCP layer unless its public contract becomes insufficient.
 4. **Provider-neutral surfaces.** ChatGPT and Claude are current sources, not architectural assumptions.
-5. **Explicit mutation.** Import, client configuration, attachment copying, deletion, and live capture must be intentional and inspectable.
+5. **Explicit mutation.** Import, client configuration, attachment copying, repository linking, deletion, and live capture must be intentional and inspectable.
 6. **No audit-the-audit machinery.** Build product behavior. Add focused tests and guardrails only where they protect real user-facing behavior.
 7. **No private implementation leakage.** Public fixtures, docs, examples, and identifiers stay synthetic and generic.
 
@@ -56,55 +56,47 @@ The roadmap is organized around user-visible product capabilities. Tests and saf
 - Source/session/message provenance for every evidence block.
 - Desktop Handoff Builder surface over the same core contract.
 
-Success condition achieved: a user can hand another AI one generated file and that AI can locate the source conversations and current code state without a giant pasted transcript.
-
 ### 0.6 — Safe attachment continuity
 
 - Attachment-reference enumeration for ChatGPT and Claude exports.
 - Local artifact resolution bounded to the selected export root.
 - Explicit attachment selection before any copy operation.
-- User-selected portable bundles containing copied artifacts and `attachments.json`.
-- SHA-256 content hashes and copy verification.
-- Conversation/message/provider provenance for each attachment reference.
-- Explicit `missing` and `ambiguous` states instead of silently dropping unavailable artifacts.
-- No signed provider URLs, opaque file IDs, or raw asset pointers in inspection, manifests, or handoffs.
-- Relative artifact paths from generated handoffs so a bundle can move to another machine or directory.
-- Handoff Builder and desktop scan/select/preview/bundle integration.
-
-Success condition achieved: a user can deliberately carry locally available artifacts alongside continuation evidence without giving the next AI provider-private download tokens or arbitrary filesystem access.
-
-## Active train
+- Portable bundles with SHA-256 verified local artifacts and provenance.
+- Explicit missing/ambiguous states and no provider-private download pointers.
 
 ### 0.7 — ContinuityBridge Workstation
 
-Goal: turn the existing continuity engines into one normal-person desktop product with one launch point and one complete journey from local history to continued work.
+- One Home / History / Recall / Connections / Continue application.
+- Guided first-run readiness and return-user recent state.
+- History import/refresh, Lore Recall, MCP client connection management, and continuation package generation in one cockpit.
+- Packaged Node runtime + ContinuityBridge engine for Windows, macOS, and Linux release bundles.
+- Preview remains non-mutating; artifact copying remains explicit.
 
-Ship:
+Success condition achieved: a user can launch one application and go from exported history to real source recall to a portable continuation package without opening separate ContinuityBridge utilities.
 
-- One `ContinuityBridge` desktop application with Home, History, Recall, Connections, and Continue areas.
-- A Home readiness view that detects the bundled bridge runtime, Lore/MCP health, Git support, and supported AI clients.
-- Guided local setup help when Lore or optional Git support is missing.
-- Recent history sources and recent handoffs persisted locally for quick return/refresh.
-- History import and incremental refresh inside the workstation rather than a separate importer utility.
-- A real Recall library surface that searches Lore, exposes real message IDs, and retrieves surrounding source context.
-- One-click transfer of selected Recall evidence into the Continue workflow.
-- Integrated client connection status, exact MCP configuration preview, confirmation, and application for Codex, Claude Code, and Cursor.
-- Integrated continuation package construction with task/evidence selection, repository coordinates, attachment scanning/selection, non-mutating preview, and explicit bundle build.
-- Bundled Node runtime and ContinuityBridge Node engine inside packaged desktop builds so end users do not need to understand the Python/Node split.
-- Windows portable executable bundle, macOS `.app` bundle, and Linux portable application bundle generated by the release workflow.
-- Tagged releases publish those platform packages as GitHub Release assets.
-- Existing specialist desktop commands remain available for compatibility, while `continuity-bridge-desktop` and `continuity-bridge-gui` launch the unified workstation.
-
-Success condition: download a platform package, launch ContinuityBridge, check local readiness, import or refresh a ChatGPT/Claude export, search old evidence inside the app, connect an installed AI client, send exact evidence into Continue, optionally add repository state and local attachment artifacts, preview without copying, then build a portable continuation package without opening another ContinuityBridge utility or requiring a source checkout.
-
-## Next product trains
+## Active train
 
 ### 0.8 — Repository-aware continuity links
 
-- Associate conversations and handoffs with repository remotes, branches, commits, issues, and pull requests.
-- Preserve links as lightweight metadata rather than inventing another graph database.
-- Let Recall narrow by project/repository context.
-- Surface related handoffs and code coordinates inside the Workstation where users can actually act on them.
+Goal: make code context a first-class way to find and continue evidence without creating another graph database or duplicating Lore.
+
+Ship:
+
+- A small user-owned `repository-links.json` that links repositories to real Lore message/session IDs and generated handoff paths.
+- Stable repository identity derived from credential-free Git remotes, falling back to explicit local repository identity when no remote exists.
+- Explicit issue and pull-request references stored as lightweight continuity coordinates.
+- Recall filtering by linked repository context.
+- An explicit “link selected evidence” action that associates the chosen Lore record with current repository coordinates plus optional issue/PR refs.
+- Recall → Continue transfer that restores the linked local repository and related issue/PR context when available.
+- Continue “Find related continuity” that surfaces linked Lore message IDs, prior handoffs, issues, and pull requests for the selected repository.
+- “Add related evidence” to reuse exact linked Lore message IDs rather than inventing summaries.
+- Generated handoffs upgraded to `continuity-bridge/handoff-v3` with issue and pull-request coordinates under repository metadata.
+- Repository-reference URL credential scrubbing and explicit repository verification rules.
+- Automatic association of successfully built handoffs back to the selected repository context.
+
+Success condition: link recalled evidence to a repository, issue, or pull request; later choose that repository in Continue; recover the exact linked Lore evidence and prior handoffs; build a continuation package that carries current Git coordinates plus those issue/PR references without introducing another evidence database.
+
+## Next product trains
 
 ### 0.9 — Explicit live capture
 
@@ -120,6 +112,7 @@ Release criteria:
 - Import/browse supported chat exports.
 - Incrementally refresh existing history.
 - Search and inspect source evidence inside the Workstation.
+- Narrow recall and continuation by repository/code context.
 - Configure and prove MCP access from supported clients.
 - Build evidence-backed handoffs tied to code state.
 - Carry safe local attachments when explicitly requested.
@@ -143,6 +136,7 @@ These are product opportunities, not commitments:
 ContinuityBridge will not become:
 
 - another general-purpose AI memory database beside Lore;
+- a graph database just to connect conversation evidence to code coordinates;
 - a hosted archive of private conversations by default;
 - an autonomous system that changes client configuration without user confirmation;
 - an identity-preservation or assistant-personality product;
