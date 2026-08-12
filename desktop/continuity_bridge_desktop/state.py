@@ -88,14 +88,25 @@ class WorkstationState:
         selected_count: int | None = None,
         detail: str = "",
     ) -> None:
+        normalized = str(Path(path).expanduser())
+        provider_name = provider.strip().lower()
         self.last_import = {
-            "provider": provider.strip().lower(),
-            "path": str(Path(path).expanduser()),
+            "provider": provider_name,
+            "path": normalized,
             "selected_count": selected_count,
             "detail": detail,
             "completed_at": _utc_now(),
         }
-        self.remember_source(provider, path)
+        previous_count = next(
+            (
+                item.get("conversation_count")
+                for item in self.recent_sources
+                if str(item.get("provider", "")).lower() == provider_name
+                and str(item.get("path", "")) == normalized
+            ),
+            None,
+        )
+        self.remember_source(provider, path, conversation_count=previous_count)
 
     def remember_handoff(self, path: str | Path, *, task: str, bundle: str | Path | None = None) -> None:
         normalized = str(Path(path).expanduser())
