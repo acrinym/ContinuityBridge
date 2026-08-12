@@ -1,6 +1,14 @@
 name: Desktop release bundles
 
 on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "packaging/**"
+      - "bin/**"
+      - "src/**"
+      - "package.json"
+      - ".github/workflows/release-desktop.yml"
   workflow_dispatch:
   push:
     tags:
@@ -12,6 +20,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.label }}
+    if: github.event_name != 'pull_request' || matrix.label == 'linux-x64'
     strategy:
       fail-fast: false
       matrix:
