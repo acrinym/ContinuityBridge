@@ -64,9 +64,16 @@ def default_lore_command() -> str:
     return shutil.which("lore") or "lore"
 
 
+def _is_packaged_lore_path(value: str) -> bool:
+    name = Path(value).name.lower()
+    return name in {"continuitybridgelore", "continuitybridgelore.exe"}
+
+
 def lore_command_for_setting(value: object) -> str:
     saved = str(value or "").strip()
-    if bundle_root() is not None and (not saved or saved == "lore"):
+    if bundle_root() is not None and (
+        not saved or saved == "lore" or _is_packaged_lore_path(saved)
+    ):
         return default_lore_command()
     return saved or default_lore_command()
 
