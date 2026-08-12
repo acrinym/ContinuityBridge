@@ -21,8 +21,9 @@ classifiers = [
 ]
 
 [project.scripts]
-continuity-bridge-desktop = "continuity_bridge_desktop.workstation:main"
-continuity-bridge-gui = "continuity_bridge_desktop.workstation:main"
+continuity-bridge-desktop = "continuity_bridge_desktop.onboarding:main"
+continuity-bridge-gui = "continuity_bridge_desktop.onboarding:main"
+continuity-bridge-import = "continuity_bridge_desktop.app:main"
 continuity-bridge-connections = "continuity_bridge_desktop.control_center:main"
 continuity-bridge-handoff = "continuity_bridge_desktop.handoff_builder:main"
 
