@@ -58,8 +58,15 @@ class WorkstationState:
             "first_run_complete": self.first_run_complete,
         }
         temporary = state_path.with_name(f".{state_path.name}.tmp")
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        temporary.replace(state_path)
+        try:
+            temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            temporary.replace(state_path)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def remember_source(self, provider: str, path: str | Path, *, conversation_count: int | None = None) -> None:
         normalized = str(Path(path).expanduser())
