@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Dependency maintenance
+
+- Added weekly Dependabot update lanes for npm, desktop Python, and GitHub Actions.
+- Added grouped patch/minor updates while leaving major releases for human review.
+- Added guarded merge-commit automation after exact-head CI success and paginated dependency-only file validation.
+- Added a privileged-workflow safety test and operating documentation.
+
 ## 0.4.0 — Train 4
 
 - Added destination-aware incremental manifests for Lore imports.
