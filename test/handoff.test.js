@@ -103,11 +103,20 @@ test("Markdown handoff contains bounded evidence and repository coordinates", as
   }
 });
 
-test("handoff CLI validates evidence source and can write a portable file", async () => {
+test("handoff CLI validates evidence source, format aliases, and can write a portable file", async () => {
   assert.throws(
     () => parseHandoffArgs(["--task", "Missing evidence"]),
     /provide --query or at least one --message-id/,
   );
+  assert.equal(
+    parseHandoffArgs(["--task", "Continue", "--message-id", "m1", "--format", "md"]).format,
+    "md",
+  );
+  assert.throws(
+    () => parseHandoffArgs(["--task", "Continue", "--message-id", "m1", "--format", "text"]),
+    /--format must be markdown, md, or json/,
+  );
+
   const data = await fixture();
   try {
     const output = join(data.directory, "HANDOFF.md");
