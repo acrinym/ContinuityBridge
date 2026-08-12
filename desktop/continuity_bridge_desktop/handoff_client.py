@@ -9,6 +9,7 @@ import subprocess
 from typing import Sequence
 
 from .client import BridgeClient, BridgeClientError
+from .runtime import default_node_command
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,8 @@ class HandoffOptions:
 
 
 class HandoffClient:
-    def __init__(self, node_command: str = "node", cli_path: str | Path | None = None) -> None:
-        self.node_command = node_command
+    def __init__(self, node_command: str | None = None, cli_path: str | Path | None = None) -> None:
+        self.node_command = node_command or default_node_command()
         self.cli_path = Path(cli_path) if cli_path else BridgeClient.default_cli_path()
 
     def _base_prefix(self) -> list[str]:
