@@ -7,6 +7,8 @@ import sys
 
 # PyInstaller exposes SPECPATH as the directory containing this spec file.
 ROOT = Path(SPECPATH).parent
+LORE_RUNTIME = ROOT / "packaging" / "lore-runtime"
+LORE_ENTRY = LORE_RUNTIME / "node_modules" / "@jordanhindo" / "lore" / "dist" / "cli" / "lore.js"
 
 
 def resolve_node_executable() -> str:
@@ -29,6 +31,11 @@ def resolve_node_executable() -> str:
     return str(node_path)
 
 
+if not LORE_ENTRY.is_file():
+    raise SystemExit(
+        "Bundled Lore runtime is missing. Install @jordanhindo/lore into packaging/lore-runtime before PyInstaller."
+    )
+
 NODE = resolve_node_executable()
 
 bridge_datas = [
@@ -36,12 +43,13 @@ bridge_datas = [
     (str(ROOT / "src"), "bridge/src"),
     (str(ROOT / "package.json"), "bridge"),
     (str(ROOT / "browser-extension"), "browser-extension"),
+    (str(LORE_RUNTIME), "lore-runtime"),
     (str(ROOT / "LICENSE"), "."),
     (str(ROOT / "NOTICE"), "."),
 ]
 node_binaries = [(NODE, "runtime")]
 
-analysis = Analysis(
+app_analysis = Analysis(
     [str(ROOT / "desktop" / "continuity_bridge_workstation.py")],
     pathex=[str(ROOT / "desktop")],
     binaries=node_binaries,
@@ -54,11 +62,29 @@ analysis = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(analysis.pure)
+lore_analysis = Analysis(
+    [str(ROOT / "desktop" / "continuity_bridge_lore.py")],
+    pathex=[str(ROOT / "desktop")],
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+)
 
-exe = EXE(
-    pyz,
-    analysis.scripts,
+MERGE(
+    (app_analysis, "continuity_bridge_workstation", "ContinuityBridge"),
+    (lore_analysis, "continuity_bridge_lore", "ContinuityBridgeLore"),
+)
+
+app_pyz = PYZ(app_analysis.pure)
+app_exe = EXE(
+    app_pyz,
+    app_analysis.dependencies,
+    app_analysis.scripts,
     [],
     exclude_binaries=True,
     name="ContinuityBridge",
@@ -74,10 +100,33 @@ exe = EXE(
     entitlements_file=None,
 )
 
+lore_pyz = PYZ(lore_analysis.pure)
+lore_exe = EXE(
+    lore_pyz,
+    lore_analysis.dependencies,
+    lore_analysis.scripts,
+    [],
+    exclude_binaries=True,
+    name="ContinuityBridgeLore",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
 collection = COLLECT(
-    exe,
-    analysis.binaries,
-    analysis.datas,
+    app_exe,
+    lore_exe,
+    app_analysis.binaries,
+    app_analysis.datas,
+    lore_analysis.binaries,
+    lore_analysis.datas,
     strip=False,
     upx=False,
     upx_exclude=[],
@@ -93,7 +142,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "ContinuityBridge",
             "CFBundleDisplayName": "ContinuityBridge",
-            "CFBundleShortVersionString": "0.9.0",
+            "CFBundleShortVersionString": "1.0.0",
             "NSHighResolutionCapable": True,
         },
     )
