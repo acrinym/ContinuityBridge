@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 — Train 7
+
+- Added one unified ContinuityBridge Workstation with Home, History, Recall, Connections, and Continue areas.
+- Added first-run/return-user readiness checks for the bridge runtime, Lore CLI/database/MCP server, Git, and supported AI clients.
+- Added local recent-source, last-import, and recent-handoff state so users can return to real work without rediscovering paths.
+- Integrated ChatGPT/Claude browse, selected import, full import, JSONL output, and incremental refresh into the Workstation.
+- Added a user-facing Lore Recall library with real message IDs, source evidence, surrounding context retrieval, and direct transfer into Continue.
+- Integrated Codex, Claude Code, and Cursor MCP status/configuration preview and explicit-confirmation setup into the same application.
+- Integrated Handoff Builder and Safe Attachment Continuity into Continue, including non-mutating preview and explicit artifact-copy build behavior.
+- Added packaged runtime discovery so desktop builds automatically use an embedded Node.js runtime and the bundled ContinuityBridge Node engine.
+- Added PyInstaller packaging for Windows, macOS, and Linux plus a tagged GitHub Release workflow.
+- Added `continuity-bridge-desktop` as the primary workstation command and made `continuity-bridge-gui` a compatibility alias to it.
+- Added focused workstation-state and Lore-library contract tests and expanded desktop compile checks.
+- Advanced repository-aware continuity behind the Workstation train so future project linking lands in a user-facing cockpit rather than another standalone subsystem.
+
 ## Unreleased — Dependency maintenance
 
 - Added weekly Dependabot update lanes for npm, desktop Python, and GitHub Actions.
