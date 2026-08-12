@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,52 @@ class RepositoryHandoffTests(unittest.TestCase):
                     no_repository=True,
                     issue_refs=("#42",),
                 )
+            )
+
+    def test_reads_exact_resolved_ids_from_written_markdown_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "HANDOFF.md"
+            path.write_text(
+                "# ContinuityBridge Handoff\n\n"
+                "### Evidence 1\n\n- Anchor message: `query-hit-1`\n\n"
+                "### Evidence 2\n\n- Anchor message: `explicit-2`\n",
+                encoding="utf-8",
+            )
+            options = HandoffOptions(
+                task="Continue",
+                query="repository continuity",
+                output_path=str(path),
+            )
+            self.assertEqual(
+                self.client.resolved_evidence_ids(options),
+                ("query-hit-1", "explicit-2"),
+            )
+
+    def test_reads_exact_resolved_ids_from_written_json_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "HANDOFF.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "lore": {
+                            "evidence": [
+                                {"anchor": {"messageId": "query-hit-1"}},
+                                {"anchor": {"messageId": "query-hit-2"}},
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            options = HandoffOptions(
+                task="Continue",
+                query="repository continuity",
+                output_path=str(path),
+                output_format="json",
+            )
+            self.assertEqual(
+                self.client.resolved_evidence_ids(options),
+                ("query-hit-1", "query-hit-2"),
             )
 
 
