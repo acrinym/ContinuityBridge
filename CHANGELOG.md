@@ -4,7 +4,7 @@
 
 - Added weekly Dependabot update lanes for npm, desktop Python, and GitHub Actions.
 - Added grouped patch/minor updates while leaving major releases for human review.
-- Added guarded squash auto-merge after exact-head CI success and dependency-only file validation.
+- Added guarded merge-commit automation after exact-head CI success and paginated dependency-only file validation.
 - Added a privileged-workflow safety test and operating documentation.
 
 ## 0.2.0 — Train 2
