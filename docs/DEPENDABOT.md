@@ -10,18 +10,18 @@ Dependabot checks each ecosystem every Monday morning in the `America/Detroit` t
 
 ## Automatic-merge policy
 
-A Dependabot pull request is squash-merged automatically only when every guard below passes:
+A Dependabot pull request is merged with a normal merge commit automatically only when every guard below passes:
 
 1. The pull request author is exactly `dependabot[bot]`.
 2. `dependabot/fetch-metadata` classifies the update as SemVer patch or minor.
-3. Every changed file stays inside the dependency boundary:
+3. Every changed file across every paginated PR-files response stays inside the dependency boundary:
    - root npm manifests and lockfiles;
    - Python manifests and lockfiles under `desktop/`;
    - GitHub Actions workflow YAML.
 4. Workflow-file patches change only `uses: action@version-or-digest` references; script, permission, trigger, and job rewrites are rejected.
 5. The pull request head has not changed while the policy is running.
 6. The repository's `CI` workflow completes successfully for that exact head commit.
-7. GitHub accepts a squash merge using `--match-head-commit`.
+7. GitHub accepts a merge commit using `--match-head-commit`.
 
 Major updates, non-SemVer updates, unexpected file changes, workflow rewrites, failed CI, cancelled CI, and stale heads are never merged automatically.
 
@@ -29,7 +29,7 @@ Major updates, non-SemVer updates, unexpected file changes, workflow rewrites, f
 
 The merge workflow uses `pull_request_target` because it needs a write-capable repository token. It therefore follows a strict rule: **the privileged workflow never checks out, downloads, imports, builds, or executes pull-request code.** It reads GitHub metadata only, waits for the separate unprivileged `CI` workflow, and merges only the exact commit that CI qualified.
 
-The metadata action is pinned to a complete commit SHA. The repository test suite also checks the workflow text for the critical no-checkout, SemVer, changed-file, workflow-diff, CI, and head-SHA guardrails.
+The metadata action is pinned to a complete commit SHA. The repository test suite also checks the workflow text for the critical no-checkout, SemVer, paginated changed-file, workflow-diff, CI, head-SHA, and merge-method guardrails.
 
 ## Repository setting
 
