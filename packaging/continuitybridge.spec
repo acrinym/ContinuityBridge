@@ -1,15 +1,35 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
-import shutil
+import subprocess
 import sys
 
 
 # PyInstaller exposes SPECPATH as the directory containing this spec file.
 ROOT = Path(SPECPATH).parent
-NODE = shutil.which("node")
-if not NODE:
-    raise SystemExit("Node.js must be available while building the desktop release bundle")
+
+
+def resolve_node_executable() -> str:
+    """Ask the Node runtime on PATH for its exact platform executable path."""
+    try:
+        result = subprocess.run(
+            ["node", "-p", "process.execPath"],
+            text=True,
+            capture_output=True,
+            shell=False,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(f"Node.js could not be resolved for the desktop release bundle: {error}") from error
+    node_path = Path(result.stdout.strip()) if result.returncode == 0 else Path()
+    if result.returncode != 0 or not node_path.is_file():
+        detail = result.stderr.strip() or result.stdout.strip() or "node -p process.execPath failed"
+        raise SystemExit(f"Node.js must be available while building the desktop release bundle: {detail}")
+    return str(node_path)
+
+
+NODE = resolve_node_executable()
 
 bridge_datas = [
     (str(ROOT / "bin"), "bridge/bin"),
