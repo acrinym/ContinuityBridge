@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — Train 9
+
+- Added the public `continuity-bridge/live-capture-v1` conversation payload contract.
+- Added normalization of live captures into the same Lore source/message batch contract used by exported history.
+- Added `continuity-bridge capture inspect` as a non-mutating validation path.
+- Added `capture submit` and `capture serve`, both requiring explicit `--to-lore` mutation intent.
+- Added an authenticated loopback-only `127.0.0.1` receiver with a per-run browser token and serialized ingestion.
+- Reused the existing incremental Lore manifest so unchanged repeated captures are skipped and successful updates checkpoint only after `lore push` succeeds.
+- Added source-URL credential/query/fragment removal and default credential-like message-text redaction.
+- Added a unified Workstation Capture area with clear OFF/ON state, exact Lore destination, Start/Stop, token/port, project/source overrides, and manual JSON inspection/submission.
+- Added a bundled Manifest V3 browser companion for explicit-click ChatGPT/Claude visible-conversation capture with no background page observer or provider API call.
+- Added Workstation-owned receiver lifecycle so closing ContinuityBridge stops the local receiver process.
+- Added synthetic live-capture fixtures and focused Node/Python coverage for stable IDs, redaction, incremental skipping, receiver authorization, explicit mutation flags, and desktop command construction.
+
 ## 0.8.0 — Train 8
 
 - Added a lightweight user-owned repository continuity link store at `~/.continuity-bridge/repository-links.json` without duplicating Lore conversation content.
@@ -62,7 +76,7 @@
 
 ## 0.4.0 — Train 4
 
-- Added destination-aware incremental manifests for Lore imports.
+- Added destination-aware local manifests.
 - Added automatic skipping of unchanged ChatGPT and Claude conversations.
 - Added `--manifest`, `--no-manifest`, and `--reimport` controls.
 - Added atomic per-conversation checkpoints after confirmed Lore pushes.
