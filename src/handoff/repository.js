@@ -41,6 +41,22 @@ function scrubRemote(remote) {
   }
 }
 
+export function sanitizeRepositoryReference(reference) {
+  const value = String(reference ?? "").trim();
+  if (!value) return null;
+  if (/^#\d+$/.test(value)) return value;
+  if (!/^https?:\/\//i.test(value)) return value;
+  try {
+    const parsed = new URL(value);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return value.replace(/^(https?:\/\/)[^/@]+@/i, "$1");
+  }
+}
+
 export async function repositoryCoordinates(path = process.cwd(), options = {}) {
   const cwd = resolve(path);
   let root;
