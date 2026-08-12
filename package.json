@@ -1,7 +1,7 @@
 {
   "name": "@acrinym/continuity-bridge",
-  "version": "0.4.0",
-  "description": "Local-first AI continuity bridge with ChatGPT and Claude imports, Lore MCP setup, and resumable conversation delivery without API credits.",
+  "version": "0.5.0",
+  "description": "Local-first AI continuity bridge for importing chat history, connecting Lore MCP clients, resuming changed imports, and building evidence-backed AI handoffs.",
   "type": "module",
   "license": "MIT",
   "author": "Justin Gargano",
@@ -22,6 +22,7 @@
     "ai-memory",
     "continuity",
     "mcp",
+    "handoff",
     "incremental-import",
     "local-first",
     "conversation-history"
@@ -31,10 +32,10 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/continuity-bridge.js && node --check src/cli.js && node --check src/incremental/manifest.js && node --test",
+    "check": "node --check bin/continuity-bridge.js && node --check src/cli.js && node --check src/incremental/manifest.js && node --check src/handoff/cli.js && node --check src/handoff/build.js && node --check src/handoff/lore-evidence.js && node --check src/handoff/repository.js && node --test",
     "smoke": "node bin/continuity-bridge.js import-chatgpt test/fixtures/chatgpt-export --dry-run && node bin/continuity-bridge.js import-claude test/fixtures/claude-export --dry-run",
     "test:desktop": "python -m unittest discover -s desktop/tests -v",
-    "check:desktop": "python -m py_compile desktop/continuity_bridge_desktop/client.py desktop/continuity_bridge_desktop/app.py desktop/continuity_bridge_desktop/mcp_control.py desktop/continuity_bridge_desktop/control_center.py desktop/continuity_bridge_gui.py && python -m unittest discover -s desktop/tests -v"
+    "check:desktop": "python -m py_compile desktop/continuity_bridge_desktop/client.py desktop/continuity_bridge_desktop/app.py desktop/continuity_bridge_desktop/mcp_control.py desktop/continuity_bridge_desktop/control_center.py desktop/continuity_bridge_desktop/handoff_client.py desktop/continuity_bridge_desktop/handoff_builder.py desktop/continuity_bridge_gui.py && python -m unittest discover -s desktop/tests -v"
   },
   "engines": {
     "node": ">=22"

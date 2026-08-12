@@ -7,6 +7,17 @@
 - Added guarded merge-commit automation after exact-head CI success and paginated dependency-only file validation.
 - Added a privileged-workflow safety test and operating documentation.
 
+## 0.5.0 — Train 5
+
+- Added `continuity-bridge handoff` for evidence-backed cross-AI continuation packages.
+- Added search-driven and explicit Lore message-ID evidence selection.
+- Added bounded source-context retrieval using real Lore identifiers rather than model-generated summaries.
+- Added repository remote, branch, head-commit, and working-tree coordinates with credential-safe remote handling.
+- Added Markdown and JSON handoff formats with provenance and continuation rules.
+- Added the `continuity-bridge-handoff` Tkinter desktop builder with preview and save workflows.
+- Added the public product roadmap and explicit no-recursive-audit product principle.
+- Added Node and Python coverage for command safety, Lore ID spending, remote credential scrubbing, rendering, and desktop command construction.
+
 ## 0.4.0 — Train 4
 
 - Added destination-aware incremental manifests for Lore imports.
