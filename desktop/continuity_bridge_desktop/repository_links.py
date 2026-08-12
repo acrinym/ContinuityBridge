@@ -47,7 +47,7 @@ def _safe_port(parsed) -> int | None:
 
 
 def sanitize_reference(value: str) -> str:
-    """Keep an explicit issue/PR reference while stripping URL credentials."""
+    """Keep an explicit issue/PR reference while stripping URL secrets."""
     cleaned = str(value).strip()
     if not cleaned:
         return ""
@@ -64,7 +64,7 @@ def sanitize_reference(value: str) -> str:
         return cleaned
     port_value = _safe_port(parsed)
     port = f":{port_value}" if port_value else ""
-    return urlunsplit((parsed.scheme.lower(), host.lower() + port, parsed.path, parsed.query, ""))
+    return urlunsplit((parsed.scheme.lower(), host.lower() + port, parsed.path, "", ""))
 
 
 def normalize_remote(remote: str | None) -> str | None:
@@ -189,7 +189,7 @@ class RepositoryLinkStore:
             encoding="utf-8",
         )
         try:
-            temporary.replace(target)
+            os.replace(temporary, target)
         except OSError:
             try:
                 temporary.unlink(missing_ok=True)
