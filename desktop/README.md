@@ -1,38 +1,31 @@
 # ContinuityBridge Desktop
 
-ContinuityBridge 0.9 ships one primary desktop Workstation for the complete local continuity journey: history import, explicit live capture, Recall, repository context, AI-client connections, and portable continuation packages.
+ContinuityBridge 1.0 ships one primary desktop Workstation for the complete local continuity journey: history import, explicit live capture, Recall, repository context, AI-client connections, and portable continuation packages.
 
-## Launch
+## Packaged launch
 
-From a Python/source install:
+Download the platform release, extract it, and launch **ContinuityBridge**. Packaged 1.0 releases include the ContinuityBridge Node engine, platform Node runtime, pinned Lore runtime, and browser capture companion.
 
-```bash
-pip install ./desktop
-continuity-bridge-desktop
-```
-
-`continuity-bridge-gui` is a compatibility alias to the same guided Workstation. Focused compatibility tools remain available:
-
-```bash
-continuity-bridge-import
-continuity-bridge-connections
-continuity-bridge-handoff
-```
+A packaged user does not need to install Node.js or Lore globally.
 
 ## First run
 
-The guided first-run view checks the bridge runtime, Lore, optional Git support, and supported AI clients. It can send the user directly to History, Capture, or Connections. Capture remains OFF until explicitly started.
+The guided first-run view checks the packaged continuity runtime, optional Git support, and supported AI clients. The selected Lore command automatically points at the sibling `ContinuityBridgeLore` executable when it is present.
+
+Choose **Initialize local memory** to explicitly run Lore setup through that packaged runtime. This can detect/index supported existing local transcripts and verify search. It does not silently configure AI clients.
+
+You can skip initialization and instead bring evidence in through History or Capture.
 
 ## Workstation areas
 
 ### Home
 
-- checks the embedded/source ContinuityBridge runtime;
-- checks Lore CLI/database/MCP readiness;
+- checks embedded ContinuityBridge/Node/Lore runtime readiness;
+- checks the user-owned Lore database and MCP startup;
 - detects optional Git support;
 - detects Codex, Claude Code, and Cursor and whether Lore is configured;
 - shows recent provider-export and handoff paths;
-- provides copyable local setup help.
+- provides packaged/source-appropriate setup help.
 
 ### History
 
@@ -56,7 +49,8 @@ The guided first-run view checks the bridge runtime, Lore, optional Git support,
 - detects supported local AI clients;
 - previews exact Lore MCP configuration/target locations;
 - requires confirmation before mutation;
-- configures Codex, Claude Code, or Cursor through existing safe client-specific logic.
+- configures Codex, Claude Code, or Cursor through existing safe client-specific logic;
+- packaged builds configure the stable absolute `ContinuityBridgeLore` command with `serve` rather than relying on global PATH.
 
 ### Capture
 
@@ -70,8 +64,6 @@ The guided first-run view checks the bridge runtime, Lore, optional Git support,
 - reuses the shared incremental checkpoint so unchanged repeated captures are skipped;
 - stops the receiver process when the Workstation closes.
 
-There is no background browser observer, LAN listener, provider-private API client, or second live-capture database.
-
 ### Continue
 
 - accepts a next task plus a Lore query and/or exact message IDs;
@@ -81,56 +73,84 @@ There is no background browser observer, LAN listener, provider-private API clie
 - previews without copying artifacts;
 - builds Markdown/JSON continuation packages and SHA-256-verified attachment bundles.
 
-## Local workstation state
+## Packaged runtime layout
 
-Return-user convenience state and incremental metadata live beneath:
+PyInstaller produces one application folder containing two executable boundaries:
+
+```text
+ContinuityBridge
+ContinuityBridgeLore
+```
+
+On Windows they have `.exe` suffixes. On macOS both executables live inside the application bundle's `Contents/MacOS` area.
+
+`ContinuityBridge` owns the GUI. `ContinuityBridgeLore` locates the bundled Node executable and bundled Lore JavaScript entrypoint, then replaces itself with that process. This lets both the Workstation and external MCP clients use ordinary Lore CLI/stdio behavior.
+
+Bundle data includes:
+
+- `bridge/` — ContinuityBridge Node engine;
+- `runtime/` — platform Node executable;
+- `lore-runtime/` — pinned `@jordanhindo/lore` 0.2.0 plus production dependencies;
+- `browser-extension/` — explicit capture companion;
+- license/notice files.
+
+## Local user data
+
+Return-user convenience/checkpoint metadata lives beneath:
 
 ```text
 ~/.continuity-bridge/
 ```
 
-That includes recent source/handoff paths, preferences, repository links, and import/live-capture resume checkpoints. It is not a second conversation database. Lore remains the durable evidence store.
+Durable Lore evidence remains outside the application package beneath:
 
-The Workstation's live receiver token is generated per application run and is not persisted in desktop settings.
+```text
+~/.lore/
+```
 
-## Packaged application
+or the configured `LORE_DB` path.
 
-`packaging/continuitybridge.spec` bundles:
+Replacing or uninstalling the package therefore does not silently replace/delete user evidence.
 
-- the Python Workstation and guided first-run experience;
-- the ContinuityBridge Node `bin/` + `src/` engine;
-- the platform Node.js runtime used during the build;
-- the `browser-extension/` explicit capture companion;
-- license/notice files.
+## Release build
 
-At runtime, `continuity_bridge_desktop.runtime` detects the PyInstaller bundle root and routes desktop clients to the embedded Node engine. Capture similarly locates the bundled browser companion from the packaged root.
+`.github/workflows/release-desktop.yml` is manual/tag-driven. On each Windows/macOS/Linux runner it:
 
-`.github/workflows/release-desktop.yml` is manual/tag driven rather than a per-PR multi-platform job. A workflow dispatch or `v*` tag builds Windows, macOS, and Linux packages; a version tag additionally publishes them as GitHub Release assets.
+1. installs pinned `@jordanhindo/lore@0.2.0` into generated `packaging/lore-runtime/`;
+2. verifies the Lore CLI entrypoint;
+3. builds the two-executable PyInstaller application bundle;
+4. verifies `ContinuityBridgeLore help` from the final package;
+5. archives the package;
+6. publishes `v*` tag builds as GitHub Release assets.
 
-Lore remains an external local dependency because it is the durable continuity database/search/MCP service. Git remains optional unless repository coordinates are requested.
+This platform packaging is deliberately not an every-PR matrix.
 
 ## Update and uninstall
 
-To update a packaged release, close ContinuityBridge, download the newer platform archive, and replace the old application bundle/folder. Closing the app also stops any Capture receiver it started.
+Close ContinuityBridge, replace the old application bundle/folder with the newer release, then launch again. Closing also stops any Capture receiver owned by the Workstation.
 
-To uninstall the app, delete the extracted ContinuityBridge folder on Windows/Linux or `ContinuityBridge.app` on macOS. User-owned data remains separate:
+To uninstall the app, delete the extracted ContinuityBridge folder on Windows/Linux or `ContinuityBridge.app` on macOS. User-owned data remains separate unless you intentionally remove `~/.continuity-bridge/`, `~/.lore/`/`LORE_DB`, or handoff bundles yourself.
 
-- `~/.continuity-bridge/` — preferences, checkpoint/recent/repository-link metadata;
-- `~/.lore/` or configured `LORE_DB` — durable conversation evidence;
-- any portable handoff bundles.
+## Source/developer launch
 
-Delete those only when you intentionally want to delete continuity data too.
+Source installs still use developer-managed runtimes:
 
-## Source requirements
+```bash
+npm install -g @jordanhindo/lore@0.2.0
+pip install ./desktop
+continuity-bridge-desktop
+```
 
-- Python 3.10+ with Tkinter
-- Node.js 22+
-- ContinuityBridge Node CLI
-- Lore for durable memory/search/MCP access
-- Git only for repository-aware workflows
-- optional supported AI clients: Codex, Claude Code, Cursor
+`CONTINUITYBRIDGE_LORE` can explicitly override Lore runtime selection. A custom saved Lore command is preserved; only the old generic packaged default `lore` migrates to `ContinuityBridgeLore`.
 
-Packaged releases embed Node.js, the ContinuityBridge Node engine, and the browser companion.
+Compatibility entrypoints remain:
+
+```bash
+continuity-bridge-gui
+continuity-bridge-import
+continuity-bridge-connections
+continuity-bridge-handoff
+```
 
 ## Validation
 
@@ -138,4 +158,4 @@ Packaged releases embed Node.js, the ContinuityBridge Node engine, and the brows
 npm run check:desktop
 ```
 
-Platform package assembly remains a manual/tag release workflow rather than an every-PR build.
+See `docs/TRAIN-010.md` for the 1.0 release contract.
