@@ -5,7 +5,8 @@ import shutil
 import sys
 
 
-ROOT = Path(SPECPATH).parent.parent
+# PyInstaller exposes SPECPATH as the directory containing this spec file.
+ROOT = Path(SPECPATH).parent
 NODE = shutil.which("node")
 if not NODE:
     raise SystemExit("Node.js must be available while building the desktop release bundle")
@@ -71,6 +72,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "ContinuityBridge",
             "CFBundleDisplayName": "ContinuityBridge",
+            "CFBundleShortVersionString": "0.7.0",
             "NSHighResolutionCapable": True,
         },
     )
