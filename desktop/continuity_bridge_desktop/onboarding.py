@@ -2,10 +2,37 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
 from .workstation import APP_TITLE, CLIENT_LABELS, ContinuityWorkstation
+
+
+class GuidedContinuityWorkstation(ContinuityWorkstation):
+    """Workstation product boundary with portable-build guarantees."""
+
+    def _make_handoff_options(self, *, preview: bool):
+        selected_attachments = self._selected_attachment_ids()
+        bundle = self.continue_bundle_var.get().strip()
+        if not preview and selected_attachments and not bundle:
+            raise ValueError(
+                "Choose a portable bundle folder before building with selected attachment artifacts."
+            )
+
+        options = super()._make_handoff_options(preview=preview)
+        if preview or options.output_path or options.attachment_bundle:
+            return options
+
+        # A bundle directory is also a valid destination for a handoff that has no
+        # attachment copies. The base UI deliberately only passes attachment_bundle
+        # when attachments are selected, so explicitly place the handoff inside the
+        # chosen directory instead of merely printing it to stdout.
+        if bundle:
+            extension = "json" if options.output_format == "json" else "md"
+            return replace(options, output_path=str(Path(bundle) / f"HANDOFF.{extension}"))
+        return options
 
 
 class FirstRunDialog:
@@ -141,7 +168,7 @@ class FirstRunDialog:
 
 def main() -> None:
     root = tk.Tk()
-    app = ContinuityWorkstation(root)
+    app = GuidedContinuityWorkstation(root)
     if not app.state.first_run_complete:
         root.after(500, lambda: FirstRunDialog(app))
     root.mainloop()
