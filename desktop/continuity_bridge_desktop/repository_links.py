@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -38,6 +39,13 @@ def _unique(values: Iterable[str]) -> list[str]:
     return output
 
 
+def _safe_port(parsed) -> int | None:
+    try:
+        return parsed.port
+    except ValueError:
+        return None
+
+
 def sanitize_reference(value: str) -> str:
     """Keep an explicit issue/PR reference while stripping URL credentials."""
     cleaned = str(value).strip()
@@ -54,7 +62,8 @@ def sanitize_reference(value: str) -> str:
     host = parsed.hostname or ""
     if not host:
         return cleaned
-    port = f":{parsed.port}" if parsed.port else ""
+    port_value = _safe_port(parsed)
+    port = f":{port_value}" if port_value else ""
     return urlunsplit((parsed.scheme.lower(), host.lower() + port, parsed.path, parsed.query, ""))
 
 
@@ -63,17 +72,23 @@ def normalize_remote(remote: str | None) -> str | None:
     value = str(remote or "").strip()
     if not value:
         return None
-    ssh_match = re.match(r"^(?:ssh://)?git@([^:/]+)[:/](.+)$", value, re.IGNORECASE)
-    if ssh_match:
-        host, path = ssh_match.groups()
+
+    # Common SCP-style Git remotes do not parse as URLs. Ignore the SSH user
+    # entirely so git@host:path and another-user@host:path identify the same repo.
+    scp_match = re.match(r"^[^@/]+@([^:/]+):(.+)$", value)
+    if scp_match:
+        host, path = scp_match.groups()
         return f"{host.lower()}/{path.removesuffix('.git').strip('/')}"
+
     try:
         parsed = urlsplit(value)
     except ValueError:
         return value.removesuffix(".git").rstrip("/")
-    if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+    if parsed.scheme.lower() in {"http", "https", "ssh", "git"} and parsed.hostname:
         path = parsed.path.removesuffix(".git").strip("/")
-        return f"{parsed.hostname.lower()}/{path}" if path else parsed.hostname.lower()
+        port_value = _safe_port(parsed)
+        host = parsed.hostname.lower() + (f":{port_value}" if port_value else "")
+        return f"{host}/{path}" if path else host
     return value.removesuffix(".git").rstrip("/")
 
 
@@ -132,7 +147,8 @@ class GitRepositoryClient:
             remote = normalize_remote(self._run(["remote", "get-url", "origin"], root))
         except RepositoryLinkError:
             remote = None
-        key = f"remote:{remote}" if remote else f"local:{root.name.lower()}:{str(root).lower()}"
+        local_identity = os.path.normcase(str(root))
+        key = f"remote:{remote}" if remote else f"local:{root.name}:{local_identity}"
         return RepositoryContext(
             key=key,
             name=root.name,
