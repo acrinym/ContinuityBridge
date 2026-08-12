@@ -22,6 +22,8 @@ class RepositoryLinkStoreTests(unittest.TestCase):
     def test_normalizes_https_and_ssh_remotes_to_same_identity(self) -> None:
         self.assertEqual(normalize_remote("https://token@github.com/acme/widget.git"), "github.com/acme/widget")
         self.assertEqual(normalize_remote("git@github.com:acme/widget.git"), "github.com/acme/widget")
+        self.assertEqual(normalize_remote("ssh://deploy:secret@github.com/acme/widget.git"), "github.com/acme/widget")
+        self.assertNotIn("secret", normalize_remote("ssh://deploy:secret@github.com/acme/widget.git") or "")
 
     def test_sanitizes_explicit_refs_without_credentials(self) -> None:
         self.assertEqual(sanitize_reference("#42"), "#42")
