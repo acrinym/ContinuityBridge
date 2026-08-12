@@ -92,7 +92,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "ContinuityBridge",
             "CFBundleDisplayName": "ContinuityBridge",
-            "CFBundleShortVersionString": "0.7.0",
+            "CFBundleShortVersionString": "0.8.0",
             "NSHighResolutionCapable": True,
         },
     )
