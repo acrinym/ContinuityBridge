@@ -66,9 +66,9 @@ jobs:
           set -euo pipefail
 
           files_json="$(
-            gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-              -f per_page=100
+            gh api --paginate --method GET \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" \
+              | jq -s 'add'
           )"
           mapfile -t files < <(jq -r '.[].filename' <<< "$files_json")
 
@@ -193,7 +193,7 @@ jobs:
             --approve \
             --body "Automated policy approval: safe Dependabot update with green CI."
 
-      - name: Squash-merge safe update
+      - name: Merge safe update
         if: steps.policy.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -204,6 +204,6 @@ jobs:
           set -euo pipefail
           gh pr merge "$PR_NUMBER" \
             --repo "$GITHUB_REPOSITORY" \
-            --squash \
+            --merge \
             --delete-branch \
             --match-head-commit "$HEAD_SHA"
