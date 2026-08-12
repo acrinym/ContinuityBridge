@@ -39,7 +39,7 @@ test("automatic merge is bounded by update type, paginated diffs, CI, and head S
 
   assert.match(
     workflow,
-    /dependabot\/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7/,
+    /dependabot\/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98/,
   );
   assert.match(workflow, /version-update:semver-patch\|version-update:semver-minor/);
   assert.doesNotMatch(workflow, /semver-major\).*eligible=true/);
