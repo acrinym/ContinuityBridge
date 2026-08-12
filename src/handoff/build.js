@@ -22,7 +22,7 @@ export async function buildHandoff(options = {}) {
   ]);
 
   return {
-    schema: "continuity-bridge/handoff-v1",
+    schema: "continuity-bridge/handoff-v2",
     createdAt: new Date().toISOString(),
     task,
     repository,
@@ -31,10 +31,13 @@ export async function buildHandoff(options = {}) {
       evidenceCount: lore.evidence.length,
       evidence: lore.evidence,
     },
+    attachments: options.attachments ?? null,
     continuationRules: [
       "Treat the included conversation records as source evidence, not as current repository truth.",
       "Verify the live repository state before changing code.",
       "Use the included message and session identifiers to retrieve more Lore context only when needed.",
+      "For copied attachments, verify the recorded SHA-256 before treating the artifact as unchanged.",
+      "Treat missing or ambiguous attachment entries as unavailable evidence; do not silently substitute remote URLs or guessed files.",
       "Do not invent missing decisions or provenance.",
     ],
   };
@@ -63,6 +66,43 @@ function renderMessage(message, anchorId) {
     .filter(Boolean)
     .join(" · ");
   return `### ${escapeMarkdown(meta)}${anchor}\n\n${message.text || "[empty message]"}\n\nMessage ID: \`${escapeMarkdown(message.messageId ?? "unknown")}\``;
+}
+
+function renderAttachments(attachments) {
+  if (!attachments) return null;
+  const lines = [
+    `Mode: **${escapeMarkdown(attachments.mode ?? "inspection")}**`,
+    `Provider: \`${escapeMarkdown(attachments.provider ?? "unknown")}\``,
+    `Selected references: ${attachments.selectedCount ?? attachments.artifacts?.length ?? 0}`,
+  ];
+  if (attachments.copiedCount !== null && attachments.copiedCount !== undefined) {
+    lines.push(`Copied artifacts: ${attachments.copiedCount}`);
+  }
+  if (attachments.unavailableCount !== null && attachments.unavailableCount !== undefined) {
+    lines.push(`Unavailable artifacts: ${attachments.unavailableCount}`);
+  }
+  if (attachments.manifestPath) {
+    lines.push(`Bundle manifest: \`${escapeMarkdown(attachments.manifestPath)}\``);
+  }
+
+  for (const [index, artifact] of (attachments.artifacts ?? []).entries()) {
+    lines.push("", `### Attachment ${index + 1}: ${escapeMarkdown(artifact.name)}`);
+    lines.push(`- ID: \`${escapeMarkdown(artifact.id)}\``);
+    lines.push(`- Status: **${escapeMarkdown(artifact.status)}**`);
+    if (artifact.mimeType) lines.push(`- Media type: \`${escapeMarkdown(artifact.mimeType)}\``);
+    if (artifact.relativePath) lines.push(`- Bundle path: \`${escapeMarkdown(artifact.relativePath)}\``);
+    if (artifact.sha256) lines.push(`- SHA-256: \`${escapeMarkdown(artifact.sha256)}\``);
+    if (artifact.size !== null && artifact.size !== undefined) lines.push(`- Size: ${artifact.size} bytes`);
+    if (artifact.missingReason) lines.push(`- Availability: ${artifact.missingReason}`);
+    if (artifact.provenance) {
+      lines.push(
+        `- Conversation: \`${escapeMarkdown(artifact.provenance.conversationId ?? "unknown")}\``,
+      );
+      lines.push(`- Message: \`${escapeMarkdown(artifact.provenance.messageId ?? "unknown")}\``);
+      lines.push(`- Source role: \`${escapeMarkdown(artifact.provenance.role ?? "unknown")}\``);
+    }
+  }
+  return lines.join("\n");
 }
 
 export function renderHandoffMarkdown(handoff) {
@@ -96,6 +136,9 @@ export function renderHandoffMarkdown(handoff) {
     const messages = item.context.map((message) => renderMessage(message, anchor.messageId));
     sections.push([...header, ...messages].join("\n\n"));
   });
+
+  const attachments = renderAttachments(handoff.attachments);
+  if (attachments) sections.push("## Attachments", attachments);
 
   sections.push(
     "## Continuation rules",
