@@ -11,7 +11,7 @@ Evidence options:
   --message-id <id>          Include an exact Lore message. Repeat for several.
   --limit <count>            Maximum search-derived anchors (default: 5).
   --context-messages <count> Maximum messages kept around each anchor (default: 11).
-  --lore-command <path>      Lore executable to invoke (default: lore).
+  --lore-command <path>      Lore executable or command to invoke (default: lore).
 
 Repository options:
   --repo <path>              Attach Git coordinates from this repository.
@@ -20,7 +20,7 @@ Repository options:
 
 Output options:
   --output <file>            Write the handoff to a file instead of stdout.
-  --format <markdown|json>   Output format; otherwise inferred from .json or Markdown.
+  --format <markdown|md|json> Output format; otherwise inferred from .json or Markdown.
 
 Examples:
   continuity-bridge handoff --task "Continue parser work" --query "parser ambiguity"
@@ -92,7 +92,7 @@ export function parseHandoffArgs(argv) {
     throw new Error("--include-local-path cannot be used with --no-repo");
   }
   if (parsed.format && !["markdown", "md", "json"].includes(parsed.format)) {
-    throw new Error("--format must be markdown or json");
+    throw new Error("--format must be markdown, md, or json");
   }
   return parsed;
 }
