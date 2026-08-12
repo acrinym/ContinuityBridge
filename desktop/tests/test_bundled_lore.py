@@ -15,13 +15,14 @@ from continuity_bridge_desktop.lore_runtime import initialize_lore  # noqa: E402
 
 
 class BundledLoreRuntimeTests(unittest.TestCase):
-    def test_packaged_build_prefers_sibling_lore_launcher_for_default_setting(self) -> None:
+    def test_packaged_build_prefers_current_sibling_lore_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             app = root / ("ContinuityBridge.exe" if runtime.os.name == "nt" else "ContinuityBridge")
             launcher = root / ("ContinuityBridgeLore.exe" if runtime.os.name == "nt" else "ContinuityBridgeLore")
             app.write_text("app", encoding="utf-8")
             launcher.write_text("lore", encoding="utf-8")
+            old_launcher = Path("/old/install/ContinuityBridgeLore.exe" if runtime.os.name == "nt" else "/old/install/ContinuityBridgeLore")
             with (
                 patch.object(runtime, "bundle_root", return_value=root / "_internal"),
                 patch.object(runtime.sys, "executable", str(app)),
@@ -30,6 +31,7 @@ class BundledLoreRuntimeTests(unittest.TestCase):
                 self.assertEqual(runtime.default_lore_command(), str(launcher))
                 self.assertEqual(runtime.lore_command_for_setting("lore"), str(launcher))
                 self.assertEqual(runtime.lore_command_for_setting(""), str(launcher))
+                self.assertEqual(runtime.lore_command_for_setting(str(old_launcher)), str(launcher))
                 self.assertEqual(runtime.lore_command_for_setting("/custom/lore"), "/custom/lore")
 
     def test_lore_environment_override_wins(self) -> None:
