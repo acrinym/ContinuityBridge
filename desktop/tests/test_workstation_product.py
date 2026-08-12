@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
-from continuity_bridge_desktop.lore_client import LoreLibraryClient
-from continuity_bridge_desktop.state import MAX_RECENT_SOURCES, WorkstationState
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PACKAGE_ROOT.parent
+sys.path.insert(0, str(PACKAGE_ROOT))
 
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from continuity_bridge_desktop.lore_client import LoreLibraryClient  # noqa: E402
+from continuity_bridge_desktop.state import MAX_RECENT_SOURCES, WorkstationState  # noqa: E402
 
 
 class WorkstationProductTests(unittest.TestCase):
