@@ -12,6 +12,14 @@ function setStatus(text) {
   status.textContent = text;
 }
 
+function parseReceiverPort(rawValue) {
+  const value = String(rawValue ?? "").trim();
+  if (!/^\d+$/.test(value)) return null;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return port;
+}
+
 async function extractVisibleConversation() {
   const hostname = location.hostname.toLowerCase();
   let source;
@@ -85,10 +93,10 @@ async function extractVisibleConversation() {
 }
 
 captureButton.addEventListener("click", async () => {
-  const port = Number(portInput.value);
+  const port = parseReceiverPort(portInput.value);
   const token = tokenInput.value.trim();
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    setStatus("Enter a valid receiver port.");
+  if (port === null) {
+    setStatus("Enter a valid receiver port using decimal digits only.");
     return;
   }
   if (!token) {
