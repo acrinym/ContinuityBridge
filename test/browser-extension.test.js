@@ -38,7 +38,7 @@ function nestedMessage(parent, text) {
   };
 }
 
-async function loadExtractor(rawElements) {
+async function loadPopup(rawElements = []) {
   const source = await readFile(new URL("../browser-extension/popup.js", import.meta.url), "utf8");
   const controls = {
     port: { value: "43119" },
@@ -73,9 +73,14 @@ async function loadExtractor(rawElements) {
       tabs: { async query() { return []; } },
       scripting: { async executeScript() { return []; } },
     },
-    fetch: async () => { throw new Error("not used by extractor test"); },
+    fetch: async () => { throw new Error("not used by popup tests"); },
   });
   vm.runInContext(source, context, { filename: "browser-extension/popup.js" });
+  return { context, controls };
+}
+
+async function loadExtractor(rawElements) {
+  const { context } = await loadPopup(rawElements);
   return vm.runInContext("extractVisibleConversation()", context);
 }
 
@@ -97,4 +102,15 @@ test("Claude capture preserves distinct repeated equal-text turns", async () => 
       ["user", "yes"],
     ],
   );
+});
+
+test("browser receiver port parser uses the CLI decimal grammar", async () => {
+  const { context } = await loadPopup();
+  assert.equal(vm.runInContext('parseReceiverPort("43119")', context), 43119);
+  assert.equal(vm.runInContext('parseReceiverPort(" 43119 ")', context), 43119);
+  assert.equal(vm.runInContext('parseReceiverPort("4.3119e4")', context), null);
+  assert.equal(vm.runInContext('parseReceiverPort("0xA847")', context), null);
+  assert.equal(vm.runInContext('parseReceiverPort("43119oops")', context), null);
+  assert.equal(vm.runInContext('parseReceiverPort("0")', context), null);
+  assert.equal(vm.runInContext('parseReceiverPort("65536")', context), null);
 });
