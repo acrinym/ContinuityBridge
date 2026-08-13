@@ -1,6 +1,7 @@
 node_modules/
 coverage/
 dist/
+packaging/lore-runtime/
 *.db
 *.db-shm
 *.db-wal

@@ -1,8 +1,12 @@
 ContinuityBridge
 Copyright (c) 2026 Justin Gargano
 
-This project interoperates with and includes a small compatible implementation
-of the normalized message-ID algorithm published by Lore:
+ContinuityBridge interoperates with Lore and includes a small compatible
+implementation of Lore's normalized message-ID algorithm. Beginning with
+ContinuityBridge 1.0, packaged desktop release bundles also include the pinned
+@jordanhindo/lore 0.2.0 npm package and its production runtime dependencies.
+Those third-party package files remain under their respective licenses; package
+license files are retained inside the bundled runtime tree.
 
 Lore
 Copyright (c) 2026 Jordan Hindo

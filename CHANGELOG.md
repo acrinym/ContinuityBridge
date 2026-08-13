@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0 — Train 10
+
+- Made packaged ContinuityBridge releases self-contained for the continuity runtime by bundling pinned `@jordanhindo/lore` 0.2.0 alongside the existing embedded Node/ContinuityBridge engine.
+- Added the stable packaged `ContinuityBridgeLore` launcher so Workstation features and external MCP clients can invoke the bundled Lore CLI without a global npm install.
+- Added packaged-runtime selection that prefers `ContinuityBridgeLore`, migrates the old saved default `lore`, preserves explicit custom Lore paths, and keeps PATH-based behavior for source installs.
+- Added an explicit first-run **Initialize local memory** action that runs Lore setup through the selected local runtime without silently configuring AI clients.
+- Replaced packaged setup guidance that previously required users to install Lore globally with npm.
+- Updated the release workflow to install Lore independently on Windows, macOS, and Linux, build a PyInstaller multi-program bundle, and verify the final packaged Lore launcher before publishing archives.
+- Kept the release workflow manual/tag-driven rather than adding three-platform packaging to every pull request.
+- Added bundled-runtime licensing notice and preserved third-party package license files in the release runtime tree.
+- Versioned the Node package, desktop package, browser capture companion, and macOS bundle at 1.0.0.
+- Added focused desktop coverage for bundled Lore discovery, saved-setting migration, environment override, and explicit shell-free Lore initialization.
+
 ## 0.9.0 — Train 9
 
 - Added the public `continuity-bridge/live-capture-v1` conversation payload contract.
@@ -110,4 +123,4 @@
 - Added Lore-compatible normalized records and stable message IDs.
 - Added direct `lore push` integration and portable JSONL output.
 - Added default credential redaction and attachment-pointer suppression.
-- Added synthetic fixtures, unit tests, smoke test, CI, architecture, and privacy documentation.
+- Added synthetic fixtures, unit tests, smoke test, CI, architecture, privacy documentation.
