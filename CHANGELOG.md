@@ -7,11 +7,15 @@
 - Added packaged-runtime selection that prefers `ContinuityBridgeLore`, migrates the old saved default `lore`, preserves explicit custom Lore paths, and keeps PATH-based behavior for source installs.
 - Added an explicit first-run **Initialize local memory** action that runs Lore setup through the selected local runtime without silently configuring AI clients.
 - Replaced packaged setup guidance that previously required users to install Lore globally with npm.
-- Updated the release workflow to install Lore independently on Windows, macOS, and Linux, build a PyInstaller multi-program bundle, and verify the final packaged Lore launcher before publishing archives.
-- Kept the release workflow manual/tag-driven rather than adding three-platform packaging to every pull request.
+- Updated the release workflow to install Lore independently on Windows, macOS, and Linux and build a PyInstaller multi-program bundle.
+- Hardened release verification so every platform executes a real packaged Lore SQLite setup/status read-write cycle, validates the produced archive layout, and publishes `SHA256SUMS.txt` with tagged release assets.
+- Added three-platform package assembly only for release-critical PR path changes, while ordinary product PRs retain the lightweight CI suite and tags publish the same verified bundles.
+- Fixed Claude browser capture so distinct repeated equal-text turns are preserved while duplicate DOM selectors for the same element remain collapsed.
+- Tightened live-capture port parsing so malformed values such as `43119oops` are rejected rather than partially accepted.
+- Documented unsigned Windows/macOS package warnings and release checksum verification without recommending global platform-security bypasses.
 - Added bundled-runtime licensing notice and preserved third-party package license files in the release runtime tree.
 - Versioned the Node package, desktop package, browser capture companion, and macOS bundle at 1.0.0.
-- Added focused desktop coverage for bundled Lore discovery, saved-setting migration, environment override, and explicit shell-free Lore initialization.
+- Added focused coverage for bundled Lore discovery, saved-setting migration, environment override, shell-free Lore initialization, Claude repeated-turn fidelity, and capture argument validation.
 
 ## 0.9.0 — Train 9
 
@@ -38,7 +42,7 @@
 - Added “Add related evidence” to reuse exact linked Lore anchors in new continuation packages.
 - Added automatic association of successfully built handoffs back to repository continuity metadata.
 - Upgraded generated handoffs to `continuity-bridge/handoff-v3` with sanitized repository issue and pull-request coordinates.
-- Added repeatable `--issue` and `--pull-request` handoff CLI options and refused unresolved repository refs instead of silently dropping them.
+- Added repeatable `--issue` and `--pull-request` CLI options and refused unresolved repository refs instead of silently dropping them.
 - Added focused Node and desktop tests for repository identity, persistence, filtering coordinates, URL credential stripping, and handoff command construction.
 
 ## 0.7.0 — Train 7
