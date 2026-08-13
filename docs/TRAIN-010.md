@@ -15,13 +15,15 @@ The existing packaged Workstation already carries:
 - the platform Node.js runtime;
 - the explicit browser capture companion.
 
-Train 010 adds a pinned Lore runtime installed during each platform's release job:
+Train 010 adds Lore 0.2.0 pinned to immutable source commit:
 
 ```text
-@jordanhindo/lore 0.2.0
+7d10369ef265fb73e539223235979ef2f367bdb8
 ```
 
-The install occurs independently on Windows, macOS, and Linux so native Node dependencies are resolved for the target platform rather than copied from another operating system.
+Lore 0.2.0 is not assumed to exist in the npm registry. Each platform release job checks out that exact source commit, verifies its declared version, installs from its committed lockfile, builds the CLI, prunes to production dependencies, and stages the runtime under `packaging/lore-runtime/`.
+
+That build occurs independently on Windows, macOS, and Linux so native Node dependencies such as SQLite bindings are resolved for the target platform rather than copied from another operating system.
 
 The generated `packaging/lore-runtime/` directory is build output and is not committed.
 
@@ -95,18 +97,19 @@ No configuration mutation occurs merely because Lore is bundled.
 
 ## Release build
 
-The existing manual/tag-driven release workflow now:
+The release workflow now:
 
 1. checks out ContinuityBridge;
 2. installs Node 22 and Python build tooling on the target runner;
-3. installs pinned `@jordanhindo/lore@0.2.0` under `packaging/lore-runtime/` with production dependencies only;
-4. runs the bundled Lore CLI help path before packaging;
+3. checks out Lore at immutable commit `7d10369ef265fb73e539223235979ef2f367bdb8`;
+4. verifies Lore declares version 0.2.0, installs from its committed lockfile, builds it, prunes development dependencies, and stages only its packaged runtime plus lock-resolved production dependencies;
 5. builds a PyInstaller multi-program one-folder bundle containing `ContinuityBridge` and `ContinuityBridgeLore` with shared Python dependencies;
-6. verifies `ContinuityBridgeLore help` from the final platform application bundle;
-7. archives the platform package;
-8. publishes tag-triggered builds through the existing GitHub Release path.
+6. runs packaged `ContinuityBridgeLore setup` and `status --json` against an isolated temporary `LORE_DB`, proving the final Node/Lore/native-SQLite write/read path on each target OS;
+7. archives the platform package and verifies both application entrypoints exist inside the produced archive;
+8. uploads the platform archive as a direct workflow artifact;
+9. on a version tag, downloads all platform archives, emits `SHA256SUMS.txt`, and publishes them through GitHub Releases.
 
-This remains a release workflow, not a per-PR three-platform CI tax.
+Ordinary product PRs retain lightweight CI. The three-platform release matrix also runs before merge when release-critical packaging/runtime paths change, so changes capable of breaking distribution are burned in without turning every PR into a platform-build tax.
 
 ## User-owned data remains separate
 
@@ -130,7 +133,7 @@ Replacing or deleting the application package therefore does not silently replac
 
 ## Third-party component boundary
 
-Lore remains a distinct MIT-licensed project. ContinuityBridge's NOTICE already reproduces the Lore MIT notice. Packaged releases now additionally include the installed Lore package and its production dependencies as build artifacts; the package-local license files travel with that bundled runtime.
+Lore remains a distinct MIT-licensed project. ContinuityBridge's NOTICE already reproduces the Lore MIT notice. Packaged releases include the built Lore package and its lock-resolved production dependencies as build artifacts; package-local license files travel with that bundled runtime.
 
 ContinuityBridge does not fork Lore storage behavior or write Lore SQLite tables directly.
 
