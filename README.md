@@ -54,7 +54,7 @@ You can skip initialization and instead bring evidence in deliberately through *
 - the ContinuityBridge Python Workstation;
 - the ContinuityBridge Node engine;
 - a platform Node.js runtime;
-- pinned `@jordanhindo/lore` 0.2.0 plus its production runtime dependencies;
+- Lore 0.2.0 source pinned at commit `7d10369ef265fb73e539223235979ef2f367bdb8`, built from its committed lockfile with production runtime dependencies for the target OS;
 - `ContinuityBridgeLore`, the stable packaged Lore launcher used by the Workstation and MCP clients;
 - the Manifest V3 explicit browser capture companion;
 - project and third-party notices.
@@ -148,7 +148,7 @@ continuity-bridge handoff \
 
 ## Source installation
 
-Packaged releases do not need this section. For development/source use:
+Packaged releases do not need this section. For development/source use, install ContinuityBridge and build the same pinned Lore source revision used by the packaged release:
 
 ```bash
 git clone https://github.com/acrinym/ContinuityBridge.git
@@ -156,7 +156,16 @@ cd ContinuityBridge
 npm install
 npm link
 pip install ./desktop
-npm install -g @jordanhindo/lore@0.2.0
+
+cd ..
+git clone https://github.com/jordanhindo/lore.git
+cd lore
+git checkout 7d10369ef265fb73e539223235979ef2f367bdb8
+npm ci
+npm run build
+npm link
+
+cd ../ContinuityBridge
 continuity-bridge-desktop
 ```
 
