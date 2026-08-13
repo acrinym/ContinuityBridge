@@ -135,7 +135,8 @@ The release workflow produces:
 
 - `ContinuityBridge-windows-x64.zip`;
 - `ContinuityBridge-macos.zip` containing `ContinuityBridge.app`;
-- `ContinuityBridge-linux-x64.tar.gz`.
+- `ContinuityBridge-linux-x64.tar.gz`;
+- `SHA256SUMS.txt` with archive integrity digests on tagged releases.
 
 Each 1.0 package contains:
 
@@ -143,11 +144,15 @@ Each 1.0 package contains:
 - `ContinuityBridgeLore` stable Lore launcher;
 - platform Node runtime;
 - ContinuityBridge Node engine;
-- pinned `@jordanhindo/lore` 0.2.0 plus production dependencies;
+- Lore 0.2.0 built from immutable source commit `7d10369ef265fb73e539223235979ef2f367bdb8` plus lock-resolved production dependencies for that OS;
 - explicit browser capture companion;
 - license/notice files.
 
-The manual/tag release workflow installs Lore independently on each target OS and verifies the final packaged `ContinuityBridgeLore help` path before archiving.
+For release-critical package/runtime changes, the Windows/macOS/Linux matrix runs before merge. Each platform build checks out that exact Lore source commit, builds from its committed lockfile, freezes the application, then runs packaged `ContinuityBridgeLore setup` and `status --json` against an isolated temporary `LORE_DB` to prove the real Node/Lore/native-SQLite write/read path. The produced archive is then inspected to confirm both application entrypoints exist.
+
+Tagged `v*` builds use the same path and publish the platform archives plus `SHA256SUMS.txt` through GitHub Releases.
+
+The current 1.0 packages are unsigned/not notarized, so Windows SmartScreen or macOS Gatekeeper may show the normal warning for an unsigned internet-downloaded application. Use the official GitHub Release, verify checksums when needed, and use normal OS review/allow controls rather than disabling platform security globally.
 
 ## Update
 
@@ -163,8 +168,17 @@ Delete the packaged folder or `.app` bundle. User data remains unless you separa
 
 ## Source/developer launch
 
+Build the same pinned Lore source revision used by packaged 1.0, then install/launch the desktop package:
+
 ```bash
-npm install -g @jordanhindo/lore@0.2.0
+git clone https://github.com/jordanhindo/lore.git
+cd lore
+git checkout 7d10369ef265fb73e539223235979ef2f367bdb8
+npm ci
+npm run build
+npm link
+
+cd /path/to/ContinuityBridge
 pip install ./desktop
 continuity-bridge-desktop
 ```

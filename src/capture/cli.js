@@ -83,7 +83,8 @@ export function parseCaptureArgs(argv) {
         parsed.tokenSet = true;
       }
       if (value === "--port") {
-        const port = Number.parseInt(next, 10);
+        if (!/^\d+$/.test(next)) throw new Error("--port must be 0-65535");
+        const port = Number(next);
         if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be 0-65535");
         parsed.port = port;
         parsed.portSet = true;

@@ -30,8 +30,11 @@ Tagged releases build:
 - **Windows:** `ContinuityBridge-windows-x64.zip`
 - **macOS:** `ContinuityBridge-macos.zip` containing `ContinuityBridge.app`
 - **Linux:** `ContinuityBridge-linux-x64.tar.gz`
+- **Integrity:** `SHA256SUMS.txt` with SHA-256 digests for every platform archive.
 
 Extract the package and launch **ContinuityBridge**.
+
+The current 1.0 packages are not code-signed/notarized. Windows SmartScreen or macOS Gatekeeper may therefore show the operating system's normal warning for an unsigned internet-downloaded application. Download only from this repository's GitHub Release, verify the archive against `SHA256SUMS.txt` when integrity matters, and use your operating system's normal review/allow flow rather than disabling platform security globally.
 
 On first run, the packaged application detects its bundled continuity runtime and offers **Initialize local memory**. That action is optional and explicit: it asks bundled Lore to detect/index supported local transcript sources and verify retrieval. It does not silently configure Codex, Claude Code, or Cursor.
 
@@ -51,7 +54,7 @@ You can skip initialization and instead bring evidence in deliberately through *
 - the ContinuityBridge Python Workstation;
 - the ContinuityBridge Node engine;
 - a platform Node.js runtime;
-- pinned `@jordanhindo/lore` 0.2.0 plus its production runtime dependencies;
+- Lore 0.2.0 source pinned at commit `7d10369ef265fb73e539223235979ef2f367bdb8`, built from its committed lockfile with production runtime dependencies for the target OS;
 - `ContinuityBridgeLore`, the stable packaged Lore launcher used by the Workstation and MCP clients;
 - the Manifest V3 explicit browser capture companion;
 - project and third-party notices.
@@ -145,7 +148,7 @@ continuity-bridge handoff \
 
 ## Source installation
 
-Packaged releases do not need this section. For development/source use:
+Packaged releases do not need this section. For development/source use, install ContinuityBridge and build the same pinned Lore source revision used by the packaged release:
 
 ```bash
 git clone https://github.com/acrinym/ContinuityBridge.git
@@ -153,7 +156,16 @@ cd ContinuityBridge
 npm install
 npm link
 pip install ./desktop
-npm install -g @jordanhindo/lore@0.2.0
+
+cd ..
+git clone https://github.com/jordanhindo/lore.git
+cd lore
+git checkout 7d10369ef265fb73e539223235979ef2f367bdb8
+npm ci
+npm run build
+npm link
+
+cd ../ContinuityBridge
 continuity-bridge-desktop
 ```
 
@@ -206,7 +218,7 @@ npm run smoke
 npm run check:desktop
 ```
 
-Desktop packaging is defined by `packaging/continuitybridge.spec` and `.github/workflows/release-desktop.yml`. Multi-platform package assembly remains manual/tag-driven rather than consuming release-build resources on every product PR.
+Desktop packaging is defined by `packaging/continuitybridge.spec` and `.github/workflows/release-desktop.yml`. Normal product PRs use the lightweight CI suite; release-critical packaging/runtime changes additionally exercise Windows, macOS, and Linux package assembly before merge, and tags publish the same verified platform bundles.
 
 ## Product roadmap
 

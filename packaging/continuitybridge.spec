@@ -33,7 +33,7 @@ def resolve_node_executable() -> str:
 
 if not LORE_ENTRY.is_file():
     raise SystemExit(
-        "Bundled Lore runtime is missing. Install @jordanhindo/lore into packaging/lore-runtime before PyInstaller."
+        "Bundled Lore runtime is missing. Build the pinned Lore source into packaging/lore-runtime before PyInstaller."
     )
 
 NODE = resolve_node_executable()
@@ -75,15 +75,12 @@ lore_analysis = Analysis(
     noarchive=False,
 )
 
-MERGE(
-    (app_analysis, "continuity_bridge_workstation", "ContinuityBridge"),
-    (lore_analysis, "continuity_bridge_lore", "ContinuityBridgeLore"),
-)
-
+# Keep both entrypoints independently analyzable. They still share one physical
+# COLLECT directory, but avoiding MERGE removes cross-executable dependency
+# archives that are fragile inside macOS .app bundles.
 app_pyz = PYZ(app_analysis.pure)
 app_exe = EXE(
     app_pyz,
-    app_analysis.dependencies,
     app_analysis.scripts,
     [],
     exclude_binaries=True,
@@ -103,7 +100,6 @@ app_exe = EXE(
 lore_pyz = PYZ(lore_analysis.pure)
 lore_exe = EXE(
     lore_pyz,
-    lore_analysis.dependencies,
     lore_analysis.scripts,
     [],
     exclude_binaries=True,

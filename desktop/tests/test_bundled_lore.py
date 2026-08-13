@@ -49,12 +49,26 @@ class BundledLoreRuntimeTests(unittest.TestCase):
             node.write_text("node", encoding="utf-8")
             lore.write_text("lore", encoding="utf-8")
             with (
-                patch.object(continuity_bridge_lore, "bundle_root", return_value=root),
+                patch.object(continuity_bridge_lore, "asset_roots", return_value=(root,)),
                 patch.object(continuity_bridge_lore.sys, "argv", ["ContinuityBridgeLore", "serve"]),
                 patch.object(continuity_bridge_lore.os, "execv") as execv,
             ):
                 continuity_bridge_lore.main()
             execv.assert_called_once_with(str(node), [str(node), str(lore), "serve"])
+
+    def test_packaged_lore_launcher_finds_onedir_internal_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            executable_dir = Path(directory)
+            internal = executable_dir / "_internal"
+            node = internal / "runtime" / ("node.exe" if sys.platform == "win32" else "node")
+            lore = internal / "lore-runtime" / "node_modules" / "@jordanhindo" / "lore" / "dist" / "cli" / "lore.js"
+            node.parent.mkdir(parents=True)
+            lore.parent.mkdir(parents=True)
+            node.write_text("node", encoding="utf-8")
+            lore.write_text("lore", encoding="utf-8")
+            with patch.object(continuity_bridge_lore, "asset_roots", return_value=(executable_dir, internal)):
+                self.assertEqual(continuity_bridge_lore.bundled_node(), node)
+                self.assertEqual(continuity_bridge_lore.bundled_lore_cli(), lore)
 
     def test_initialize_lore_is_explicit_shell_free_setup_command(self) -> None:
         completed = subprocess.CompletedProcess(

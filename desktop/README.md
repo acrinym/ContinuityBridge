@@ -90,7 +90,7 @@ Bundle data includes:
 
 - `bridge/` — ContinuityBridge Node engine;
 - `runtime/` — platform Node executable;
-- `lore-runtime/` — pinned `@jordanhindo/lore` 0.2.0 plus production dependencies;
+- `lore-runtime/` — Lore 0.2.0 built from immutable source commit `7d10369ef265fb73e539223235979ef2f367bdb8` plus lock-resolved production dependencies;
 - `browser-extension/` — explicit capture companion;
 - license/notice files.
 
@@ -114,16 +114,17 @@ Replacing or uninstalling the package therefore does not silently replace/delete
 
 ## Release build
 
-`.github/workflows/release-desktop.yml` is manual/tag-driven. On each Windows/macOS/Linux runner it:
+`.github/workflows/release-desktop.yml` is tag/manual driven and also runs on pull requests that change release-critical runtime/package inputs. On each Windows/macOS/Linux runner it:
 
-1. installs pinned `@jordanhindo/lore@0.2.0` into generated `packaging/lore-runtime/`;
-2. verifies the Lore CLI entrypoint;
+1. checks out Lore at immutable commit `7d10369ef265fb73e539223235979ef2f367bdb8` and verifies that source declares version 0.2.0;
+2. installs from Lore's committed lockfile, builds the CLI, prunes development dependencies, and stages the production runtime for that operating system;
 3. builds the two-executable PyInstaller application bundle;
-4. verifies `ContinuityBridgeLore help` from the final package;
-5. archives the package;
-6. publishes `v*` tag builds as GitHub Release assets.
+4. runs packaged `ContinuityBridgeLore setup` and `status --json` against an isolated temporary `LORE_DB`, proving the frozen Node/Lore/native-SQLite read/write path;
+5. archives the package and verifies both application entrypoints exist inside the produced archive;
+6. uploads the platform archive directly as a workflow artifact;
+7. on a `v*` tag, publishes all platform archives plus `SHA256SUMS.txt` as GitHub Release assets.
 
-This platform packaging is deliberately not an every-PR matrix.
+Ordinary product PRs keep lightweight CI. Only changes to release-critical package/runtime paths pay the three-platform package-build cost.
 
 ## Update and uninstall
 
@@ -133,11 +134,21 @@ To uninstall the app, delete the extracted ContinuityBridge folder on Windows/Li
 
 ## Source/developer launch
 
-Source installs still use developer-managed runtimes:
+Source installs use developer-managed runtimes. Build the same pinned Lore source revision used by packaged 1.0:
 
 ```bash
-npm install -g @jordanhindo/lore@0.2.0
+# From a ContinuityBridge checkout
 pip install ./desktop
+
+# In a sibling/location of your choice
+git clone https://github.com/jordanhindo/lore.git
+cd lore
+git checkout 7d10369ef265fb73e539223235979ef2f367bdb8
+npm ci
+npm run build
+npm link
+
+# Then launch ContinuityBridge
 continuity-bridge-desktop
 ```
 

@@ -12,6 +12,14 @@ function setStatus(text) {
   status.textContent = text;
 }
 
+function parseReceiverPort(rawValue) {
+  const value = String(rawValue ?? "").trim();
+  if (!/^\d+$/.test(value)) return null;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return port;
+}
+
 async function extractVisibleConversation() {
   const hostname = location.hostname.toLowerCase();
   let source;
@@ -31,7 +39,6 @@ async function extractVisibleConversation() {
       ...document.querySelectorAll('[data-testid="user-message"], [data-testid="assistant-message"], .font-claude-message'),
     ];
     const seenElements = new Set();
-    const seenMessages = new Set();
     nodes = raw
       .map((candidate) => {
         const explicit = candidate.closest('[data-testid="user-message"], [data-testid="assistant-message"]');
@@ -41,9 +48,7 @@ async function extractVisibleConversation() {
         const testId = element.getAttribute("data-testid") || "";
         const role = testId.includes("user") ? "user" : "assistant";
         const text = (element.innerText || element.textContent || "").trim();
-        const key = `${role}\u0000${text}`;
-        if (!text || seenMessages.has(key)) return null;
-        seenMessages.add(key);
+        if (!text) return null;
         return { element, role };
       })
       .filter(Boolean);
@@ -88,10 +93,10 @@ async function extractVisibleConversation() {
 }
 
 captureButton.addEventListener("click", async () => {
-  const port = Number.parseInt(portInput.value, 10);
+  const port = parseReceiverPort(portInput.value);
   const token = tokenInput.value.trim();
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    setStatus("Enter a valid receiver port.");
+  if (port === null) {
+    setStatus("Enter a valid receiver port using decimal digits only.");
     return;
   }
   if (!token) {

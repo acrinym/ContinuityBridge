@@ -159,4 +159,8 @@ test("capture CLI makes mutation and receiver scope explicit", () => {
     () => parseCaptureArgs(["inspect", FIXTURE, "--token", "local-token"]),
     /only valid with capture serve/,
   );
+  assert.throws(
+    () => parseCaptureArgs(["serve", "--to-lore", "--port", "43119oops"]),
+    /--port must be 0-65535/,
+  );
 });
