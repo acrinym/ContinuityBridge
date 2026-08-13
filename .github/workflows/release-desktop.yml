@@ -11,6 +11,8 @@ on:
       - "desktop/continuity_bridge_desktop/lore_runtime.py"
       - "desktop/continuity_bridge_desktop/onboarding.py"
       - "desktop/pyproject.toml"
+      - "bin/**"
+      - "src/**"
       - "browser-extension/**"
       - "package.json"
   push:
