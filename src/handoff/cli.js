@@ -18,6 +18,8 @@ Repository options:
   --repo <path>              Attach Git coordinates from this repository.
   --no-repo                  Omit repository coordinates.
   --include-local-path       Include the absolute local repository path.
+  --issue <ref>              Associate an issue (#123 or URL). Repeat as needed.
+  --pull-request <ref>       Associate a pull request (#456 or URL). Repeat as needed.
 
 Attachment options:
   --attachment-provider <chatgpt|claude> Provider for the source export.
@@ -36,7 +38,8 @@ omitted, ContinuityBridge writes HANDOFF.md (or HANDOFF.json) there automaticall
 
 Examples:
   continuity-bridge handoff --task "Continue parser work" --query "parser ambiguity"
-  continuity-bridge handoff --task "Fix issue 42" --message-id abc123 --repo . --output HANDOFF.md
+  continuity-bridge handoff --task "Fix issue 42" --message-id abc123 --repo . --issue '#42' --output HANDOFF.md
+  continuity-bridge handoff --task "Continue PR" --message-id abc123 --repo . --pull-request '#88'
   continuity-bridge handoff --task "Continue design" --message-id abc123 --no-repo \\
     --attachment-provider chatgpt --attachment-export ./export --all-attachments \\
     --attachment-bundle ./continuity-bundle
@@ -59,6 +62,8 @@ export function parseHandoffArgs(argv) {
     repositoryPath: null,
     noRepo: false,
     includeLocalPath: false,
+    issueRefs: [],
+    pullRequestRefs: [],
     output: null,
     format: null,
     attachmentProvider: null,
@@ -76,6 +81,8 @@ export function parseHandoffArgs(argv) {
     "--context-messages",
     "--lore-command",
     "--repo",
+    "--issue",
+    "--pull-request",
     "--output",
     "--format",
     "--attachment-provider",
@@ -98,6 +105,8 @@ export function parseHandoffArgs(argv) {
       if (option === "--context-messages") parsed.contextMessages = positiveInteger(value, option);
       if (option === "--lore-command") parsed.loreCommand = value;
       if (option === "--repo") parsed.repositoryPath = value;
+      if (option === "--issue") parsed.issueRefs.push(value);
+      if (option === "--pull-request") parsed.pullRequestRefs.push(value);
       if (option === "--output") parsed.output = value;
       if (option === "--format") parsed.format = value.toLowerCase();
       if (option === "--attachment-provider") parsed.attachmentProvider = value.toLowerCase();
@@ -120,6 +129,9 @@ export function parseHandoffArgs(argv) {
   if (parsed.noRepo && parsed.repositoryPath) throw new Error("--repo and --no-repo cannot be used together");
   if (parsed.includeLocalPath && parsed.noRepo) {
     throw new Error("--include-local-path cannot be used with --no-repo");
+  }
+  if (parsed.noRepo && (parsed.issueRefs.length > 0 || parsed.pullRequestRefs.length > 0)) {
+    throw new Error("--issue and --pull-request require repository coordinates");
   }
   if (parsed.format && !["markdown", "md", "json"].includes(parsed.format)) {
     throw new Error("--format must be markdown, md, or json");
@@ -241,6 +253,8 @@ export async function runHandoffCli(argv) {
       repositoryPath: args.noRepo ? process.cwd() : (args.repositoryPath ?? process.cwd()),
       repositoryOptional: args.noRepo || !args.repositoryPath,
       includeLocalPath: args.includeLocalPath,
+      issueRefs: args.issueRefs,
+      pullRequestRefs: args.pullRequestRefs,
     });
     if (args.noRepo) handoff.repository = null;
 

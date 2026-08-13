@@ -1,11 +1,25 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { collectLoreEvidence } from "./lore-evidence.js";
-import { repositoryCoordinates } from "./repository.js";
+import { repositoryCoordinates, sanitizeRepositoryReference } from "./repository.js";
+
+function uniqueReferences(values = []) {
+  const output = [];
+  const seen = new Set();
+  for (const value of values) {
+    const sanitized = sanitizeRepositoryReference(value);
+    if (!sanitized || seen.has(sanitized)) continue;
+    seen.add(sanitized);
+    output.push(sanitized);
+  }
+  return output;
+}
 
 export async function buildHandoff(options = {}) {
   const task = String(options.task ?? "").trim();
   if (!task) throw new Error("handoff task is required");
+  const issueRefs = uniqueReferences(options.issueRefs);
+  const pullRequestRefs = uniqueReferences(options.pullRequestRefs);
 
   const [lore, repository] = await Promise.all([
     collectLoreEvidence({
@@ -21,8 +35,16 @@ export async function buildHandoff(options = {}) {
     }),
   ]);
 
+  if (!repository && (issueRefs.length > 0 || pullRequestRefs.length > 0)) {
+    throw new Error("issue and pull request references require a resolvable Git repository");
+  }
+  if (repository) {
+    repository.issues = issueRefs;
+    repository.pullRequests = pullRequestRefs;
+  }
+
   return {
-    schema: "continuity-bridge/handoff-v2",
+    schema: "continuity-bridge/handoff-v3",
     createdAt: new Date().toISOString(),
     task,
     repository,
@@ -35,6 +57,7 @@ export async function buildHandoff(options = {}) {
     continuationRules: [
       "Treat the included conversation records as source evidence, not as current repository truth.",
       "Verify the live repository state before changing code.",
+      "Treat issue and pull request references as continuity coordinates; verify their current live state before acting on them.",
       "Use the included message and session identifiers to retrieve more Lore context only when needed.",
       "For copied attachments, verify the recorded SHA-256 before treating the artifact as unchanged.",
       "Treat missing or ambiguous attachment entries as unavailable evidence; do not silently substitute remote URLs or guessed files.",
@@ -47,6 +70,10 @@ function escapeMarkdown(value) {
   return String(value ?? "").replace(/`/g, "\\`");
 }
 
+function renderReferenceList(values) {
+  return values?.length ? values.map((item) => `\`${escapeMarkdown(item)}\``).join(", ") : "none";
+}
+
 function renderRepository(repository) {
   if (!repository) return "Repository coordinates were not included.";
   const lines = [
@@ -55,6 +82,8 @@ function renderRepository(repository) {
     `- Branch: ${repository.branch ? `\`${escapeMarkdown(repository.branch)}\`` : "detached / unknown"}`,
     `- Head: \`${escapeMarkdown(repository.head)}\``,
     `- Working tree: **${repository.dirty ? "dirty" : "clean"}**`,
+    `- Issues: ${renderReferenceList(repository.issues)}`,
+    `- Pull requests: ${renderReferenceList(repository.pullRequests)}`,
   ];
   if (repository.localPath) lines.push(`- Local path: \`${escapeMarkdown(repository.localPath)}\``);
   return lines.join("\n");

@@ -1,7 +1,7 @@
 {
   "name": "@acrinym/continuity-bridge",
-  "version": "0.7.0",
-  "description": "Local-first AI continuity workstation for importing chat history, recalling source evidence, connecting Lore MCP clients, and building portable continuation packages with verified attachments.",
+  "version": "0.8.0",
+  "description": "Local-first AI continuity workstation for importing chat history, recalling source evidence by repository context, connecting Lore MCP clients, and building portable continuation packages with verified attachments.",
   "type": "module",
   "license": "MIT",
   "author": "Justin Gargano",
@@ -27,7 +27,8 @@
     "incremental-import",
     "local-first",
     "conversation-history",
-    "desktop-workstation"
+    "desktop-workstation",
+    "repository-context"
   ],
   "bin": {
     "continuity-bridge": "bin/continuity-bridge.js"
@@ -37,7 +38,7 @@
     "check": "node --check bin/continuity-bridge.js && node --check src/cli.js && node --check src/attachments/discover.js && node --check src/attachments/bundle.js && node --check src/attachments/cli.js && node --check src/incremental/manifest.js && node --check src/handoff/cli.js && node --check src/handoff/build.js && node --check src/handoff/lore-evidence.js && node --check src/handoff/repository.js && node --test",
     "smoke": "node bin/continuity-bridge.js import-chatgpt test/fixtures/chatgpt-export --dry-run && node bin/continuity-bridge.js import-claude test/fixtures/claude-export --dry-run && node bin/continuity-bridge.js attachments chatgpt test/fixtures/chatgpt-export --json && node bin/continuity-bridge.js attachments claude test/fixtures/claude-export --json",
     "test:desktop": "python -m unittest discover -s desktop/tests -v",
-    "check:desktop": "python -m py_compile desktop/continuity_bridge_desktop/client.py desktop/continuity_bridge_desktop/runtime.py desktop/continuity_bridge_desktop/state.py desktop/continuity_bridge_desktop/lore_client.py desktop/continuity_bridge_desktop/app.py desktop/continuity_bridge_desktop/mcp_control.py desktop/continuity_bridge_desktop/control_center.py desktop/continuity_bridge_desktop/handoff_client.py desktop/continuity_bridge_desktop/handoff_builder.py desktop/continuity_bridge_desktop/workstation.py desktop/continuity_bridge_desktop/onboarding.py desktop/continuity_bridge_gui.py desktop/continuity_bridge_workstation.py && python -m unittest discover -s desktop/tests -v"
+    "check:desktop": "python -m py_compile desktop/continuity_bridge_desktop/client.py desktop/continuity_bridge_desktop/runtime.py desktop/continuity_bridge_desktop/state.py desktop/continuity_bridge_desktop/lore_client.py desktop/continuity_bridge_desktop/repository_links.py desktop/continuity_bridge_desktop/repository_workstation.py desktop/continuity_bridge_desktop/app.py desktop/continuity_bridge_desktop/mcp_control.py desktop/continuity_bridge_desktop/control_center.py desktop/continuity_bridge_desktop/handoff_client.py desktop/continuity_bridge_desktop/handoff_builder.py desktop/continuity_bridge_desktop/workstation.py desktop/continuity_bridge_desktop/onboarding.py desktop/continuity_bridge_gui.py desktop/continuity_bridge_workstation.py && python -m unittest discover -s desktop/tests -v"
   },
   "engines": {
     "node": ">=22"

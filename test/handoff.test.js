@@ -59,7 +59,7 @@ test("search-derived handoff spends the exact Lore message ID and scrubs remote 
       loreCommand: data.lore,
       repositoryPath: data.repo,
     });
-    assert.equal(handoff.schema, "continuity-bridge/handoff-v2");
+    assert.equal(handoff.schema, "continuity-bridge/handoff-v3");
     assert.equal(handoff.lore.evidence.length, 1);
     assert.equal(handoff.lore.evidence[0].anchor.messageId, "m-search");
     assert.equal(handoff.repository.dirty, false);

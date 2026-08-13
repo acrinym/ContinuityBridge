@@ -1,6 +1,6 @@
 # ContinuityBridge Workstation
 
-ContinuityBridge Workstation is the primary desktop product beginning with 0.7. It brings import, recall, AI-client connections, repository state, safe attachments, and handoff generation into one local application.
+ContinuityBridge Workstation is the primary desktop product beginning with 0.7. It brings import, recall, AI-client connections, repository-aware continuity, safe attachments, and handoff generation into one local application.
 
 ## What the Workstation does
 
@@ -11,11 +11,13 @@ The intended journey is:
 3. import or refresh ChatGPT/Claude history;
 4. search the original evidence in Recall;
 5. inspect exact source context;
-6. connect an installed AI client to Lore when needed;
-7. send selected evidence into Continue;
-8. optionally add current repository state and explicitly selected local artifacts;
-9. preview without copying files;
-10. build the portable continuation package.
+6. optionally link that evidence to a Git repository, with optional issue and pull-request references;
+7. connect an installed AI client to Lore when needed;
+8. send selected evidence into Continue;
+9. recover related evidence/prior handoffs for the repository when useful;
+10. optionally add current repository state and explicitly selected local artifacts;
+11. preview without copying files;
+12. build the portable continuation package.
 
 ContinuityBridge never needs a model API key to perform this journey.
 
@@ -90,6 +92,24 @@ This is original source evidence, not a generated summary.
 
 Choose **Continue with selected evidence** to carry the exact message ID into the Continue screen.
 
+### Repository-aware Recall
+
+Beginning with 0.8, Recall can explicitly associate a real Lore evidence record with a local Git repository.
+
+To link evidence:
+
+1. search Lore normally;
+2. select a result;
+3. choose the repository the evidence belongs to;
+4. optionally add issue and pull-request references such as `#42`, `#88`, or explicit URLs;
+5. choose **Link selected evidence**.
+
+The link is lightweight metadata. ContinuityBridge stores the real Lore message/session IDs and repository coordinates; it does not copy the message body into another database.
+
+After links exist, the Recall repository filter can narrow a Lore search to evidence explicitly associated with that repository. Filtering still operates on real Lore search results; ContinuityBridge does not fabricate message IDs or maintain a second search index.
+
+If you choose **Continue with selected evidence** on a linked result, ContinuityBridge also restores the linked repository and known issue/PR references when possible. If the evidence is linked to more than one repository, ContinuityBridge does not choose one arbitrarily; select the intended repository in the Recall repository filter first.
+
 ## Connections
 
 Connections detects supported local AI clients:
@@ -114,9 +134,10 @@ Provide the next task. Evidence can come from:
 
 - a Lore search query;
 - exact Lore message IDs;
-- a message ID carried directly from Recall.
+- a message ID carried directly from Recall;
+- exact message IDs previously linked to the selected repository.
 
-The handoff engine retrieves bounded source context using those real identifiers.
+The handoff engine retrieves bounded source context using those real identifiers. When a handoff is built from a search query, ContinuityBridge reads the exact resolved anchor IDs back from the handoff it actually wrote before associating that handoff with repository continuity metadata.
 
 ### Repository
 
@@ -128,6 +149,21 @@ Choose a current Git repository to include:
 - working-tree state.
 
 Or explicitly choose no repository.
+
+### Related continuity
+
+When a repository has repository links, choose **Find related continuity** to surface:
+
+- exact linked Lore message IDs;
+- prior generated handoff paths;
+- issue references;
+- pull-request references.
+
+Choose **Add related evidence** to add those linked real Lore message IDs to the current continuation evidence list. This is evidence reuse, not summary generation.
+
+Issue and pull-request references are optional coordinates attached to a repository. A resolvable Git repository is required whenever either reference is supplied. ContinuityBridge does not silently fetch their live contents or assume their state. A consuming AI/user must verify the current issue/PR state before acting.
+
+A successfully built handoff is linked back to the selected repository so it can appear as related continuity next time.
 
 ### Safe attachments
 
@@ -149,6 +185,8 @@ Preview retrieves evidence and renders the proposed handoff without passing an a
 
 Build writes the handoff and, when selected, copies local artifacts into the portable bundle. Copies are SHA-256 verified and referenced by relative path.
 
+When issue or pull-request references are supplied, a resolvable repository is required. `handoff-v3` includes the sanitized references under the repository section.
+
 The bundle can then move to another directory/machine without relying on the original absolute path.
 
 ## Local data locations
@@ -158,6 +196,14 @@ ContinuityBridge Workstation convenience metadata:
 ```text
 ~/.continuity-bridge/workstation.json
 ```
+
+Repository continuity links:
+
+```text
+~/.continuity-bridge/repository-links.json
+```
+
+Repository links contain repository coordinates, Lore IDs, issue/PR references, and handoff paths—not copied conversation text.
 
 Desktop preferences:
 
@@ -191,7 +237,7 @@ A packaged release contains the Workstation, ContinuityBridge Node core, and Nod
 
 Close ContinuityBridge, download the newer platform archive, and replace the previous application bundle/folder.
 
-Because continuity data is stored outside the application bundle, updating the app does not replace Lore history, recent-source metadata, or handoff bundles.
+Because continuity data is stored outside the application bundle, updating the app does not replace Lore history, repository links, recent-source metadata, or handoff bundles.
 
 ## Uninstall
 
@@ -201,7 +247,7 @@ That removes the application but deliberately leaves user-owned local data untou
 
 If you also want to remove data, separately and intentionally remove the relevant paths:
 
-- `~/.continuity-bridge/` for ContinuityBridge preferences/manifests/recent metadata;
+- `~/.continuity-bridge/` for ContinuityBridge preferences/manifests/recent/repository-link metadata;
 - `~/.lore/` or the configured Lore database for durable imported evidence;
 - any handoff bundles you created.
 

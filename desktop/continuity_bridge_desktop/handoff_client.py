@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 import subprocess
 from typing import Sequence
 
@@ -20,6 +21,8 @@ class HandoffOptions:
     repository_path: str | None = None
     no_repository: bool = False
     include_local_path: bool = False
+    issue_refs: tuple[str, ...] = ()
+    pull_request_refs: tuple[str, ...] = ()
     lore_command: str = "lore"
     limit: int = 5
     context_messages: int = 11
@@ -50,6 +53,8 @@ class HandoffClient:
         task = options.task.strip()
         query = (options.query or "").strip()
         message_ids = tuple(item.strip() for item in options.message_ids if item.strip())
+        issue_refs = tuple(item.strip() for item in options.issue_refs if item.strip())
+        pull_request_refs = tuple(item.strip() for item in options.pull_request_refs if item.strip())
         attachment_ids = tuple(item.strip() for item in options.attachment_ids if item.strip())
         attachment_provider = (options.attachment_provider or "").strip().lower()
         attachment_export = (options.attachment_export or "").strip()
@@ -65,6 +70,8 @@ class HandoffClient:
             raise ValueError("Choose a repository or omit repository coordinates, not both.")
         if options.no_repository and options.include_local_path:
             raise ValueError("A local repository path cannot be included when repository coordinates are omitted.")
+        if options.no_repository and (issue_refs or pull_request_refs):
+            raise ValueError("Issue and pull request references require repository coordinates.")
         if options.output_format not in {"markdown", "md", "json"}:
             raise ValueError("Output format must be markdown or json.")
 
@@ -100,6 +107,10 @@ class HandoffClient:
             command.extend(["--repo", options.repository_path])
         if options.include_local_path:
             command.append("--include-local-path")
+        for issue_ref in issue_refs:
+            command.extend(["--issue", issue_ref])
+        for pull_request_ref in pull_request_refs:
+            command.extend(["--pull-request", pull_request_ref])
 
         if has_attachments:
             command.extend(["--attachment-provider", attachment_provider])
@@ -153,6 +164,53 @@ class HandoffClient:
         if not isinstance(parsed, dict) or not isinstance(parsed.get("attachments"), list):
             raise BridgeClientError("attachment inspection returned an unsupported response")
         return parsed
+
+    @staticmethod
+    def output_path(options: HandoffOptions) -> Path | None:
+        """Return the concrete handoff file path for a mutating build."""
+        if options.output_path:
+            return Path(options.output_path).expanduser()
+        if options.attachment_bundle:
+            extension = "json" if options.output_format == "json" else "md"
+            return Path(options.attachment_bundle).expanduser() / f"HANDOFF.{extension}"
+        return None
+
+    @classmethod
+    def resolved_evidence_ids(cls, options: HandoffOptions) -> tuple[str, ...]:
+        """Read exact resolved anchor IDs from the handoff that was actually written."""
+        path = cls.output_path(options)
+        if path is None:
+            return ()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return ()
+
+        if options.output_format == "json" or path.suffix.lower() == ".json":
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                return ()
+            lore = payload.get("lore") if isinstance(payload, dict) else None
+            evidence = lore.get("evidence") if isinstance(lore, dict) else None
+            if not isinstance(evidence, list):
+                return ()
+            identifiers: list[str] = []
+            for item in evidence:
+                anchor = item.get("anchor") if isinstance(item, dict) else None
+                message_id = anchor.get("messageId") if isinstance(anchor, dict) else None
+                if message_id:
+                    cleaned = str(message_id).strip()
+                    if cleaned and cleaned not in identifiers:
+                        identifiers.append(cleaned)
+            return tuple(identifiers)
+
+        identifiers = []
+        for message_id in re.findall(r"^- Anchor message: `([^`]+)`\s*$", text, flags=re.MULTILINE):
+            cleaned = message_id.strip()
+            if cleaned and cleaned not in identifiers:
+                identifiers.append(cleaned)
+        return tuple(identifiers)
 
     def generate(self, options: HandoffOptions) -> subprocess.CompletedProcess[str]:
         return self.run(self.build_command(options))

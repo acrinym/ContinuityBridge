@@ -7,10 +7,11 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-from .workstation import APP_TITLE, CLIENT_LABELS, ContinuityWorkstation
+from .repository_workstation import RepositoryAwareWorkstation
+from .workstation import CLIENT_LABELS, ContinuityWorkstation
 
 
-class GuidedContinuityWorkstation(ContinuityWorkstation):
+class GuidedContinuityWorkstation(RepositoryAwareWorkstation):
     """Workstation product boundary with portable-build guarantees."""
 
     def _make_handoff_options(self, *, preview: bool):
@@ -87,8 +88,8 @@ class FirstRunDialog:
             journey,
             text=(
                 "Choose a ChatGPT or Claude export → inspect it locally → import it into Lore → "
-                "search the original evidence in Recall → choose Continue → optionally add a Git repository "
-                "or verified local artifacts → build the handoff."
+                "search the original evidence in Recall → optionally link it to a repository/issue/PR → "
+                "choose Continue → add current code state or verified local artifacts → build the handoff."
             ),
             wraplength=650,
             justify=tk.LEFT,
