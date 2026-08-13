@@ -2,6 +2,17 @@ name: Desktop release bundles
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/release-desktop.yml"
+      - "packaging/**"
+      - "desktop/continuity_bridge_lore.py"
+      - "desktop/continuity_bridge_desktop/runtime.py"
+      - "desktop/continuity_bridge_desktop/lore_runtime.py"
+      - "desktop/continuity_bridge_desktop/onboarding.py"
+      - "desktop/pyproject.toml"
+      - "browser-extension/**"
+      - "package.json"
   push:
     tags:
       - "v*"
@@ -55,26 +66,75 @@ jobs:
         run: python -m pip install ./desktop pyinstaller
       - name: Build Workstation application
         run: pyinstaller packaging/continuitybridge.spec --clean --noconfirm
-      - name: Verify packaged Lore launcher on Windows
+      - name: Verify packaged Lore read/write path on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: '& "dist/ContinuityBridge/ContinuityBridgeLore.exe" help | Out-Null'
-      - name: Verify packaged Lore launcher on macOS
+        run: |
+          $smoke = Join-Path $env:RUNNER_TEMP "continuitybridge-lore-smoke"
+          New-Item -ItemType Directory -Force -Path $smoke | Out-Null
+          $env:LORE_DB = Join-Path $smoke "lore.db"
+          & "dist/ContinuityBridge/ContinuityBridgeLore.exe" setup --home $smoke | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "dist/ContinuityBridge/ContinuityBridgeLore.exe" status --json | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path $env:LORE_DB)) { throw "Packaged Lore did not create its SQLite store." }
+      - name: Verify packaged Lore read/write path on macOS
         if: runner.os == 'macOS'
-        run: dist/ContinuityBridge.app/Contents/MacOS/ContinuityBridgeLore help >/dev/null
-      - name: Verify packaged Lore launcher on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke="$RUNNER_TEMP/continuitybridge-lore-smoke"
+          mkdir -p "$smoke"
+          export LORE_DB="$smoke/lore.db"
+          dist/ContinuityBridge.app/Contents/MacOS/ContinuityBridgeLore setup --home "$smoke" >/dev/null
+          dist/ContinuityBridge.app/Contents/MacOS/ContinuityBridgeLore status --json >/dev/null
+          test -f "$LORE_DB"
+      - name: Verify packaged Lore read/write path on Linux
         if: runner.os == 'Linux'
-        run: dist/ContinuityBridge/ContinuityBridgeLore help >/dev/null
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke="$RUNNER_TEMP/continuitybridge-lore-smoke"
+          mkdir -p "$smoke"
+          export LORE_DB="$smoke/lore.db"
+          dist/ContinuityBridge/ContinuityBridgeLore setup --home "$smoke" >/dev/null
+          dist/ContinuityBridge/ContinuityBridgeLore status --json >/dev/null
+          test -f "$LORE_DB"
       - name: Package Windows bundle
         if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path dist/ContinuityBridge/* -DestinationPath "${{ matrix.archive }}"
+      - name: Verify Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $extract = Join-Path $env:RUNNER_TEMP "continuitybridge-archive"
+          Expand-Archive -Path "${{ matrix.archive }}" -DestinationPath $extract -Force
+          if (-not (Test-Path (Join-Path $extract "ContinuityBridge.exe"))) { throw "ContinuityBridge.exe missing from archive." }
+          if (-not (Test-Path (Join-Path $extract "ContinuityBridgeLore.exe"))) { throw "ContinuityBridgeLore.exe missing from archive." }
       - name: Package macOS application
         if: runner.os == 'macOS'
         run: ditto -c -k --sequesterRsrc --keepParent dist/ContinuityBridge.app "${{ matrix.archive }}"
+      - name: Verify macOS archive
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -t "${{ matrix.archive }}" >/dev/null
+          listing="$(unzip -Z1 "${{ matrix.archive }}")"
+          grep -Fxq "ContinuityBridge.app/Contents/MacOS/ContinuityBridge" <<<"$listing"
+          grep -Fxq "ContinuityBridge.app/Contents/MacOS/ContinuityBridgeLore" <<<"$listing"
       - name: Package Linux bundle
         if: runner.os == 'Linux'
         run: tar -czf "${{ matrix.archive }}" -C dist ContinuityBridge
+      - name: Verify Linux archive
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          listing="$(tar -tzf "${{ matrix.archive }}")"
+          grep -Fxq "ContinuityBridge/ContinuityBridge" <<<"$listing"
+          grep -Fxq "ContinuityBridge/ContinuityBridgeLore" <<<"$listing"
       - name: Upload platform bundle
         uses: actions/upload-artifact@v7
         with:
@@ -97,6 +157,12 @@ jobs:
           pattern: ContinuityBridge-*
           path: release-assets
           merge-multiple: true
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum ContinuityBridge-* > SHA256SUMS.txt
       - name: Publish tagged release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
