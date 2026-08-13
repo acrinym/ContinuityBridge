@@ -22,6 +22,7 @@ permissions:
 
 env:
   BUNDLED_LORE_VERSION: "0.2.0"
+  BUNDLED_LORE_COMMIT: "7d10369ef265fb73e539223235979ef2f367bdb8"
 
 jobs:
   build:
@@ -48,20 +49,33 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install pinned Lore runtime for this platform
+      - name: Check out pinned Lore source
+        uses: actions/checkout@v7
+        with:
+          repository: jordanhindo/lore
+          ref: ${{ env.BUNDLED_LORE_COMMIT }}
+          path: packaging/lore-source
+          persist-credentials: false
+      - name: Build pinned Lore runtime for this platform
         shell: bash
         run: |
           set -euo pipefail
           rm -rf packaging/lore-runtime
-          npm install \
-            --prefix packaging/lore-runtime \
-            --no-save \
-            --package-lock=false \
-            --omit=dev \
-            --no-audit \
-            --no-fund \
-            "@jordanhindo/lore@${BUNDLED_LORE_VERSION}"
+          pushd packaging/lore-source >/dev/null
+          test "$(node -p "require('./package.json').version")" = "$BUNDLED_LORE_VERSION"
+          npm ci --no-audit --no-fund
+          npm run build
+          npm prune --omit=dev --no-audit --no-fund
+          lore_package="$(npm pack --silent)"
+          popd >/dev/null
+          mkdir -p packaging/lore-runtime/node_modules/@jordanhindo/lore
+          tar -xzf "packaging/lore-source/$lore_package" \
+            --strip-components=1 \
+            -C packaging/lore-runtime/node_modules/@jordanhindo/lore
+          mv packaging/lore-source/node_modules \
+            packaging/lore-runtime/node_modules/@jordanhindo/lore/node_modules
           node packaging/lore-runtime/node_modules/@jordanhindo/lore/dist/cli/lore.js help >/dev/null
+          rm -rf packaging/lore-source
       - name: Install desktop build tooling
         run: python -m pip install ./desktop pyinstaller
       - name: Build Workstation application
