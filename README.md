@@ -2,50 +2,45 @@
 
 > **Your AI tools should not forget each other.**
 
-ContinuityBridge is a local-first continuity workstation for carrying user-authorized conversation evidence, code state, and explicitly selected local artifacts between AI tools.
+ContinuityBridge is a local-first continuity workstation for carrying user-authorized conversation evidence, repository/code context, and explicitly selected local artifacts between AI tools.
 
-It imports **ChatGPT** and **Claude** exports into [Lore](https://github.com/jordanhindo/lore), lets you search that evidence inside the desktop app, connects Lore to supported AI clients, refreshes existing history incrementally, and builds portable evidence-backed continuation packages.
+It imports **ChatGPT** and **Claude** exports into [Lore](https://github.com/jordanhindo/lore), can explicitly capture supported active browser conversations into the same local evidence store, lets you recall exact source evidence by repository context, connects Lore to supported AI clients, and builds portable evidence-backed continuation packages.
 
-**No model API key. No API credits. No hosted memory service. Your history and bundles stay on your machine.**
+**No model API key. No API credits. No hosted ContinuityBridge memory service. Capture is OFF until you turn it on.**
 
 ```text
-ChatGPT export ─┐
-                ├──▶ ContinuityBridge Workstation
-Claude export ──┘     Home · History · Recall · Connections · Continue
-                                  │
-                   ┌──────────────┴──────────────┐
-                   ▼                             ▼
-                 Lore                    portable handoff
-          local evidence · MCP        repo state · attachments
-                   │
-          ┌────────┼────────┐
-          ▼        ▼        ▼
-       Codex   Claude Code  Cursor
+ChatGPT / Claude exports ─┐
+                         ├──▶ ContinuityBridge Workstation
+explicit browser capture ┘     Home · History · Recall · Connections · Capture · Continue
+                                         │
+                         ┌───────────────┴───────────────┐
+                         ▼                               ▼
+                       Lore                      portable handoff
+              local evidence · search · MCP   repo state · refs · attachments
+                         │
+                 ┌───────┼────────┐
+                 ▼       ▼        ▼
+              Codex  Claude Code  Cursor
 ```
 
 ## The normal user journey
 
-ContinuityBridge 0.7 is one desktop application instead of a chain of separate utilities.
-
 1. **Launch ContinuityBridge.** First run checks the local continuity stack and explains what is missing.
-2. **Open History.** Choose a ChatGPT or Claude export, inspect it locally, and import or refresh it into Lore.
-3. **Open Recall.** Search the original evidence, see the real Lore message ID, and inspect surrounding context.
-4. **Open Connections.** See which supported AI clients are installed and whether Lore MCP is already configured. Preview the exact change before applying it.
-5. **Continue.** Carry recalled evidence or a new Lore query into a continuation task, add repository state when relevant, optionally select local attachment artifacts, preview without copying, then build the portable package.
-
-The Workstation stores recent source/handoff paths locally so returning to a real project does not require rediscovering everything.
+2. **Bring in evidence.** Open **History** for a ChatGPT/Claude export, or open **Capture** and deliberately start the local receiver for an active supported browser conversation.
+3. **Recall the source.** Search Lore, see real message IDs, and inspect bounded surrounding context.
+4. **Add code context when relevant.** Link exact evidence to a Git repository plus optional issue/PR coordinates, then filter Recall by that repository later.
+5. **Connect clients.** Preview and explicitly configure Lore MCP for supported local AI clients.
+6. **Continue.** Carry exact evidence into a task, add current repository state and optional verified local artifacts, preview without copying, then build the portable continuation package.
 
 ## Downloadable desktop packages
 
-A tagged release builds three self-contained Workstation packages:
+Tagged releases build:
 
 - **Windows:** `ContinuityBridge-windows-x64.zip`
 - **macOS:** `ContinuityBridge-macos.zip` containing `ContinuityBridge.app`
 - **Linux:** `ContinuityBridge-linux-x64.tar.gz`
 
-The packaged application contains the ContinuityBridge Node engine and its Node.js 22 runtime. A packaged user does **not** need to clone this repository, run `npm install`, or understand the Python/Node split.
-
-Lore remains a separate local dependency because it is the durable evidence database and MCP service shared by authorized AI clients.
+The packaged application contains the Workstation, ContinuityBridge Node engine, Node.js runtime, and browser capture companion. Lore remains a separate local dependency because it is the durable evidence/search/MCP layer shared with authorized AI clients.
 
 ### Lore setup
 
@@ -54,25 +49,122 @@ npm install -g @jordanhindo/lore
 lore setup
 ```
 
-The first-run Workstation view detects Lore and provides copyable setup help when it is missing. Git is optional unless you want current repository coordinates in generated handoffs.
+## Workstation areas
 
-## Update and uninstall
+### Home
 
-For a packaged release, close ContinuityBridge, download the newer archive, and replace the old application bundle/folder.
+Checks the packaged/source runtime, Lore, Git, and supported AI-client connection state. It also keeps recent export/handoff paths for convenient return without creating another conversation database.
 
-To uninstall the application, delete that bundle/folder. User-owned continuity data deliberately remains separate:
+### History
 
-- `~/.continuity-bridge/` — preferences, recent-source metadata, and import manifests;
-- `~/.lore/` or configured `LORE_DB` — Lore's durable evidence database;
-- any portable handoff bundles you created.
+Opens supported ChatGPT/Claude ZIP, folder, and JSON exports; analyzes before mutation; imports selected or complete history; and refreshes repeated imports through the destination-aware incremental/resume contract.
 
-Delete those only when you intentionally want to remove the associated data as well. Replacing or uninstalling the application does not silently delete conversation evidence.
+### Recall
 
-See [`docs/WORKSTATION.md`](docs/WORKSTATION.md) for the complete desktop user guide.
+Searches Lore, displays exact returned IDs and source/session metadata, retrieves surrounding source context with those IDs, and sends selected evidence to Continue.
+
+Repository-aware Recall can explicitly link evidence to a Git repository plus optional issue/PR references, narrow future searches by that repository, and restore unambiguous repository context in Continue. Lore remains the sole conversation-content store.
+
+### Connections
+
+Detects Codex, Claude Code, and Cursor, previews the exact Lore MCP change, requires confirmation, and applies the supported client-specific configuration path.
+
+### Capture
+
+Capture is explicit and local:
+
+- receiver is **OFF by default**;
+- Start binds an authenticated HTTP receiver only to `127.0.0.1`;
+- the Workstation shows the exact port, destination, and fresh per-run token;
+- the bundled Manifest V3 browser companion reads recognized visible ChatGPT/Claude message containers only after the user presses **Capture current conversation**;
+- unsupported page structures are refused rather than guessed;
+- repeated unchanged captures are skipped by the same incremental checkpoint machinery used for history refresh;
+- closing the Workstation stops the receiver it started;
+- local/desktop tools can use the public `continuity-bridge/live-capture-v1` JSON contract when no stable native transcript surface exists.
+
+There is no background page observer and no provider-private API client.
+
+### Continue
+
+Builds Markdown/JSON continuation packages from a task plus exact Lore evidence. Packages can include current Git remote/branch/HEAD/dirty state, optional issue/PR coordinates, and explicitly selected local artifacts copied into a SHA-256-verified portable bundle.
+
+**Preview is non-mutating.** Artifact files are copied only during explicit Build.
+
+## Explicit live-capture CLI
+
+Read-only validation:
+
+```bash
+continuity-bridge capture inspect ./capture.json --json
+```
+
+Explicit one-shot ingestion:
+
+```bash
+continuity-bridge capture submit ./capture.json --to-lore
+```
+
+Explicit loopback receiver:
+
+```bash
+continuity-bridge capture serve --to-lore --port 43119
+```
+
+`submit` and `serve` refuse to run without `--to-lore`. The receiver has no LAN bind option.
+
+## History import CLI
+
+```bash
+continuity-bridge inspect-chatgpt ./chatgpt-export.zip --json
+continuity-bridge inspect-claude ./claude-export.zip --json
+
+continuity-bridge import-chatgpt ./chatgpt-export.zip --to-lore
+continuity-bridge import-claude ./claude-export.zip --to-lore
+```
+
+Portable JSONL remains available with `--output <file>`.
+
+## Safe attachment continuity
+
+```bash
+continuity-bridge attachments chatgpt ./chatgpt-export --json
+continuity-bridge attachments claude ./claude-export.zip --json
+```
+
+Copying requires explicit attachment IDs or `--all`. ContinuityBridge stays inside the selected export root, never follows provider-private signed URLs, records provenance, and verifies copied artifacts with SHA-256.
+
+## Evidence-backed handoff CLI
+
+```bash
+continuity-bridge handoff \
+  --task "Continue implementation" \
+  --query "the product decision we made" \
+  --repo . \
+  --issue '#42' \
+  --pull-request '#88' \
+  --output ./HANDOFF.md
+```
+
+A resolvable repository is required when issue/PR references are supplied. Consumers are instructed to verify their live state before acting.
+
+## Privacy and safety model
+
+ContinuityBridge is local-first by design:
+
+- no hosted ContinuityBridge account is required;
+- exports are not uploaded to a ContinuityBridge server;
+- live receiver is loopback-only and bearer-authenticated;
+- browser capture happens only on an explicit click;
+- captured source URLs lose credentials, query strings, and fragments;
+- credential-like message text is redacted by default;
+- provider-private attachment pointers are suppressed;
+- AI-client mutation requires explicit confirmation;
+- attachment copying requires explicit selection;
+- Lore is accessed through its public CLI contracts rather than direct SQLite coupling.
+
+See [`docs/PRIVACY.md`](docs/PRIVACY.md) for the detailed contract and [`docs/WORKSTATION.md`](docs/WORKSTATION.md) for the desktop user journey.
 
 ## Source installation
-
-Developers and source users can still install the packages directly.
 
 ```bash
 git clone https://github.com/acrinym/ContinuityBridge.git
@@ -83,9 +175,7 @@ pip install ./desktop
 continuity-bridge-desktop
 ```
 
-`continuity-bridge-gui` is retained as a compatibility alias and opens the same guided Workstation.
-
-Focused compatibility/troubleshooting entrypoints remain available:
+Focused compatibility entrypoints remain available:
 
 ```bash
 continuity-bridge-import
@@ -93,205 +183,22 @@ continuity-bridge-connections
 continuity-bridge-handoff
 ```
 
-A normal user should not need to switch among them.
-
-## Workstation areas
-
-### Home
-
-Home checks and summarizes:
-
-- packaged/source bridge runtime availability;
-- Lore executable, local database, CLI health, and MCP startup;
-- Git availability;
-- Codex, Claude Code, and Cursor installation/configuration state;
-- recent ChatGPT/Claude export sources;
-- recent generated handoffs.
-
-No AI client is configured automatically. Configuration remains an explicit user action.
-
-### History
-
-History supports:
-
-- ChatGPT ZIP, folder, JSON, and numbered `conversations-*.json` imports;
-- Claude ZIP, folder, and JSON imports;
-- local analysis before mutation;
-- conversation filtering and preview;
-- selected or complete import into Lore;
-- optional JSONL output;
-- credential-like string redaction on by default;
-- project override;
-- one-click refresh through the existing incremental/resume engine.
-
-Repeated Lore imports are destination-aware and skip unchanged conversations while preserving crash-resume checkpoints.
-
-### Recall
-
-Recall makes the durable Lore history usable without leaving ContinuityBridge.
-
-It can:
-
-- search Lore with relevance ranking;
-- display real returned message IDs;
-- show source/session metadata when Lore provides it;
-- retrieve surrounding context using the exact selected message ID;
-- send that evidence directly into Continue.
-
-ContinuityBridge does not invent identifiers or ask a model to summarize the evidence before you inspect it.
-
-### Connections
-
-Connections can:
-
-- detect Codex, Claude Code, and Cursor;
-- show whether Lore is configured for each installed client;
-- preview the exact MCP configuration and target location;
-- require explicit confirmation before mutation;
-- use each supported client's safe configuration strategy;
-- re-check the resulting connection state.
-
-### Continue
-
-Continue combines the Handoff Builder and Safe Attachment Continuity product paths.
-
-A continuation package can include:
-
-- a user-written next task;
-- a Lore search query and/or exact message IDs;
-- bounded source context;
-- Git remote, branch, HEAD, and clean/dirty coordinates;
-- explicitly selected local attachment artifacts from a supported provider export;
-- SHA-256 hashes and artifact provenance;
-- Markdown or JSON handoff output.
-
-**Preview is non-mutating.** Selected attachment references can appear in a preview, but local files are not copied until the user explicitly builds a bundle.
-
-## Safe attachment continuity
-
-Attachment handling is deliberately conservative:
-
-- enumerate provider attachment references without downloading them;
-- resolve local artifacts only inside the selected export root;
-- show `available`, `missing`, or `ambiguous` state;
-- require explicit attachment selection before copying;
-- copy chosen files into a user-selected bundle;
-- record SHA-256 hashes and verify every copy;
-- preserve conversation/message/provider provenance;
-- keep unavailable selected references visible in `attachments.json`;
-- refuse conflicting existing files unless overwrite is explicitly enabled;
-- never follow signed provider URLs or use opaque provider IDs as download credentials;
-- reference copied artifacts from handoffs with relative paths.
-
-## Command-line workflows
-
-The CLI remains the automation surface used by the desktop application.
-
-### Inspect before importing
-
-```bash
-continuity-bridge inspect-chatgpt ./chatgpt-export.zip --json
-continuity-bridge inspect-claude ./claude-export.zip --json
-```
-
-### Import directly into Lore
-
-```bash
-continuity-bridge import-chatgpt ./chatgpt-export.zip --to-lore
-continuity-bridge import-claude ./claude-export.zip --to-lore
-```
-
-### Write portable JSONL instead
-
-```bash
-continuity-bridge import-chatgpt ./export.zip --output ./chatgpt-lore.jsonl
-continuity-bridge import-claude ./export.zip --output ./claude-lore.jsonl
-```
-
-### Inspect attachment references
-
-```bash
-continuity-bridge attachments chatgpt ./chatgpt-export --json
-continuity-bridge attachments claude ./claude-export.zip --json
-```
-
-### Build an attachment bundle
-
-```bash
-continuity-bridge attachments chatgpt ./chatgpt-export \
-  --bundle ./portable-bundle \
-  --attachment-id <attachment-id>
-```
-
-Or explicitly select every reference:
-
-```bash
-continuity-bridge attachments claude ./claude-export \
-  --bundle ./portable-bundle \
-  --all
-```
-
-### Build an evidence-backed handoff
-
-```bash
-continuity-bridge handoff \
-  --task "Continue implementation" \
-  --query "the product decision we made" \
-  --repo . \
-  --output ./HANDOFF.md
-```
-
-With selected local artifacts:
-
-```bash
-continuity-bridge handoff \
-  --task "Continue implementation" \
-  --query "the product decision we made" \
-  --repo . \
-  --attachment-provider chatgpt \
-  --attachment-export ./chatgpt-export \
-  --attachment-id <attachment-id> \
-  --attachment-bundle ./portable-bundle
-```
-
-## Privacy and safety model
-
-ContinuityBridge is local-first by design:
-
-- it does not require a hosted ContinuityBridge account;
-- it does not send conversation exports to a ContinuityBridge server;
-- provider-private attachment pointers are suppressed from public output;
-- credential-like strings are redacted by default during provider normalization;
-- MCP client mutation requires explicit confirmation in the desktop UI;
-- attachment copying requires explicit selection;
-- generated handoffs carry source evidence and provenance instead of an opaque model-generated interpretation.
-
-See [`docs/PRIVACY.md`](docs/PRIVACY.md) for the detailed contract.
-
 ## Architecture
 
 ```text
-Provider exports
-   │
-   ▼
-ContinuityBridge Node core
-   │ normalize / stable IDs / redaction / incremental manifests
-   ├──────────────▶ JSONL
-   │
-   ▼
-Lore
-   │ durable local evidence / search / get / context / MCP
-   │
-   ├──────────────▶ Codex / Claude Code / Cursor
-   │
-   ▼
-ContinuityBridge Workstation
-   │ Recall / Connections / Continue
-   │
-   └──────────────▶ handoff + optional verified local artifact bundle
+provider exports ──▶ provider adapters ─┐
+                                        ├─▶ normalized Lore batch ─▶ shared incremental checkpoint ─▶ lore push
+explicit live JSON/browser click ──────▶ live-capture normalizer ─┘
+                                                                              │
+                                                                              ▼
+                                                                             Lore
+                                                                              │
+                                  ┌───────────────────────────────────────────┼──────────────┐
+                                  ▼                                           ▼              ▼
+                               Recall                                      MCP clients    Continue/handoff
 ```
 
-The desktop Workstation calls the same public Node CLI and Lore contracts used by automation. It does not maintain a second provider parser or another memory database.
+ContinuityBridge does not maintain another conversation database, search engine, or hidden capture archive beside Lore.
 
 ## Development
 
@@ -301,10 +208,10 @@ npm run smoke
 npm run check:desktop
 ```
 
-Desktop packaging is defined by `packaging/continuitybridge.spec` and `.github/workflows/release-desktop.yml`. The three-platform package build is manual/tag driven rather than part of every product PR. A `v*` tag additionally publishes the built archives as GitHub Release assets.
+Desktop packaging is defined by `packaging/continuitybridge.spec` and `.github/workflows/release-desktop.yml`. Multi-platform packaging remains manual/tag-driven rather than consuming release-build resources on every product PR.
 
 ## Product roadmap
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-The next committed product direction after the Workstation is repository-aware continuity inside the cockpit—not another standalone infrastructure layer.
+After 0.9 Explicit Live Capture, the next committed train is **1.0 — Finished public continuity workstation**: release finishing, onboarding, packaging, and user-proof—not another infrastructure subsystem.

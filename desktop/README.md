@@ -1,6 +1,6 @@
 # ContinuityBridge Desktop
 
-ContinuityBridge 0.7 ships one primary desktop workstation for the full local continuity journey.
+ContinuityBridge 0.9 ships one primary desktop Workstation for the complete local continuity journey: history import, explicit live capture, Recall, repository context, AI-client connections, and portable continuation packages.
 
 ## Launch
 
@@ -11,7 +11,7 @@ pip install ./desktop
 continuity-bridge-desktop
 ```
 
-`continuity-bridge-gui` is a compatibility alias to the same guided Workstation. The original focused importer remains available as `continuity-bridge-import`, and the older specialist commands remain available when a focused utility is useful:
+`continuity-bridge-gui` is a compatibility alias to the same guided Workstation. Focused compatibility tools remain available:
 
 ```bash
 continuity-bridge-import
@@ -21,127 +21,116 @@ continuity-bridge-handoff
 
 ## First run
 
-The primary Workstation entrypoint opens a guided first-run view until the user completes or dismisses it. It checks the bridge runtime, Lore, optional Git support, and supported AI clients, then offers a direct path to choose the first ChatGPT or Claude export.
+The guided first-run view checks the bridge runtime, Lore, optional Git support, and supported AI clients. It can send the user directly to History, Capture, or Connections. Capture remains OFF until explicitly started.
 
-Missing components are reported as local readiness problems rather than Python/Node implementation details. The setup view can copy the required Lore setup commands and can take the user directly to Connections or History.
-
-## Workstation
-
-The Workstation has five user-facing areas.
+## Workstation areas
 
 ### Home
 
 - checks the embedded/source ContinuityBridge runtime;
 - checks Lore CLI/database/MCP readiness;
-- detects Git;
+- detects optional Git support;
 - detects Codex, Claude Code, and Cursor and whether Lore is configured;
-- shows recent provider export sources;
-- shows recent generated handoffs;
-- provides copyable setup help when the local continuity stack is incomplete.
+- shows recent provider-export and handoff paths;
+- provides copyable local setup help.
 
 ### History
 
-- opens ChatGPT or Claude ZIP/folder/JSON exports;
-- analyzes, filters, and previews conversations locally;
+- opens ChatGPT/Claude ZIP, folder, and supported JSON exports;
+- analyzes, filters, and previews locally;
 - imports selected or complete history into Lore;
 - optionally writes JSONL;
 - keeps credential-like redaction enabled by default;
-- refreshes an existing source through the same incremental/resume contract used by the CLI.
+- refreshes through the same incremental/resume contract as the CLI.
 
 ### Recall
 
 - searches Lore from inside ContinuityBridge;
-- displays real Lore message IDs and available source metadata;
-- retrieves surrounding context using the selected exact message ID;
+- displays real Lore message IDs and source/session metadata;
+- retrieves bounded surrounding context with the selected exact ID;
+- filters by explicitly linked repository context;
 - sends selected evidence directly into Continue.
 
 ### Connections
 
-- shows supported client installation/configuration state;
-- previews the exact Lore MCP configuration and target path;
+- detects supported local AI clients;
+- previews exact Lore MCP configuration/target locations;
 - requires confirmation before mutation;
-- configures Codex, Claude Code, or Cursor through the existing safe client-specific logic.
+- configures Codex, Claude Code, or Cursor through existing safe client-specific logic.
+
+### Capture
+
+- clearly shows OFF / STARTING / ON;
+- starts an authenticated receiver bound only to `127.0.0.1`;
+- shows the exact Lore destination, port, and fresh per-run token;
+- supports optional Lore project/source overrides;
+- bundles a Manifest V3 browser companion for explicit-click visible ChatGPT/Claude capture;
+- refuses unsupported browser structures rather than scraping arbitrary text;
+- supports non-mutating inspection and explicit Lore submission of `continuity-bridge/live-capture-v1` JSON files;
+- reuses the shared incremental checkpoint so unchanged repeated captures are skipped;
+- stops the receiver process when the Workstation closes.
+
+There is no background browser observer, LAN listener, provider-private API client, or second live-capture database.
 
 ### Continue
 
-- accepts a next task plus Lore search query and/or exact message IDs;
+- accepts a next task plus a Lore query and/or exact message IDs;
 - attaches current Git repository coordinates when requested;
-- scans supported provider exports for local attachment references;
-- lets the user explicitly select attachment artifacts;
-- previews handoffs without copying files;
-- builds Markdown/JSON continuation packages and verified attachment bundles.
+- restores/surfaces linked repository evidence, issue/PR coordinates, and prior handoffs;
+- scans supported exports for local attachment references;
+- previews without copying artifacts;
+- builds Markdown/JSON continuation packages and SHA-256-verified attachment bundles.
 
 ## Local workstation state
 
-Return-user convenience state is stored in:
+Return-user convenience state and incremental metadata live beneath:
 
 ```text
-~/.continuity-bridge/workstation.json
+~/.continuity-bridge/
 ```
 
-It contains recent local source/handoff paths and last-import metadata. It is not a second conversation database and does not copy provider history. Lore remains the durable evidence store.
+That includes recent source/handoff paths, preferences, repository links, and import/live-capture resume checkpoints. It is not a second conversation database. Lore remains the durable evidence store.
 
-Existing desktop preferences continue to use:
-
-```text
-~/.continuity-bridge/desktop.json
-```
+The Workstation's live receiver token is generated per application run and is not persisted in desktop settings.
 
 ## Packaged application
 
-`packaging/continuitybridge.spec` builds the desktop application with:
+`packaging/continuitybridge.spec` bundles:
 
-- the Python Workstation and first-run experience;
+- the Python Workstation and guided first-run experience;
 - the ContinuityBridge Node `bin/` + `src/` engine;
-- the platform Node.js 22 runtime used during the build;
+- the platform Node.js runtime used during the build;
+- the `browser-extension/` explicit capture companion;
 - license/notice files.
 
-At runtime, `continuity_bridge_desktop.runtime` detects PyInstaller's bundle root and directs `BridgeClient` and `HandoffClient` to the embedded Node engine automatically.
+At runtime, `continuity_bridge_desktop.runtime` detects the PyInstaller bundle root and routes desktop clients to the embedded Node engine. Capture similarly locates the bundled browser companion from the packaged root.
 
-`.github/workflows/release-desktop.yml` is deliberately manual/tag driven rather than a per-PR multi-platform job. A workflow dispatch or a `v*` tag builds:
+`.github/workflows/release-desktop.yml` is manual/tag driven rather than a per-PR multi-platform job. A workflow dispatch or `v*` tag builds Windows, macOS, and Linux packages; a version tag additionally publishes them as GitHub Release assets.
 
-- Windows portable executable bundle ZIP;
-- macOS `.app` ZIP;
-- Linux portable executable bundle tarball.
-
-A version tag additionally publishes the three archives as GitHub Release assets. Lore remains an external local dependency because it is the durable continuity database/MCP service shared with authorized AI clients. Git remains optional unless repository coordinates are requested.
+Lore remains an external local dependency because it is the durable continuity database/search/MCP service. Git remains optional unless repository coordinates are requested.
 
 ## Update and uninstall
 
-### Packaged releases
+To update a packaged release, close ContinuityBridge, download the newer platform archive, and replace the old application bundle/folder. Closing the app also stops any Capture receiver it started.
 
-To update, download the newer platform archive, close ContinuityBridge, and replace the old application bundle/folder. User continuity data is not stored inside the application bundle, so replacing the app does not remove Lore or workstation preferences.
+To uninstall the app, delete the extracted ContinuityBridge folder on Windows/Linux or `ContinuityBridge.app` on macOS. User-owned data remains separate:
 
-To uninstall the application itself, delete the extracted `ContinuityBridge` folder on Windows/Linux or `ContinuityBridge.app` on macOS.
+- `~/.continuity-bridge/` — preferences, checkpoint/recent/repository-link metadata;
+- `~/.lore/` or configured `LORE_DB` — durable conversation evidence;
+- any portable handoff bundles.
 
-Optional user-owned local data remains separate:
+Delete those only when you intentionally want to delete continuity data too.
 
-- `~/.continuity-bridge/` — ContinuityBridge preferences, recent-source metadata, and import manifests;
-- `~/.lore/` (or the configured `LORE_DB`) — Lore's durable evidence database;
-- any portable handoff bundles the user created.
-
-Delete those only when the user intentionally wants to remove that data as well. ContinuityBridge does not silently delete Lore history during application uninstall.
-
-### Source installs
-
-Re-run `pip install ./desktop` after updating the checkout. Remove the Python desktop package with:
-
-```bash
-pip uninstall continuity-bridge-desktop
-```
-
-The Node CLI can be unlinked/removed separately if it was installed from source.
-
-## Runtime requirements for source installs
+## Source requirements
 
 - Python 3.10+ with Tkinter
 - Node.js 22+
 - ContinuityBridge Node CLI
 - Lore for durable memory/search/MCP access
-- Git only for repository-aware handoffs
-- one or more optional supported AI clients: Codex, Claude Code, Cursor
+- Git only for repository-aware workflows
+- optional supported AI clients: Codex, Claude Code, Cursor
 
-Packaged desktop releases embed Node.js and the ContinuityBridge Node CLI, removing those two source-install requirements for normal end users.
+Packaged releases embed Node.js, the ContinuityBridge Node engine, and the browser companion.
 
 ## Validation
 
@@ -149,4 +138,4 @@ Packaged desktop releases embed Node.js and the ContinuityBridge Node CLI, remov
 npm run check:desktop
 ```
 
-Platform packaging is exercised when the manual/tag release workflow is run. The normal product PR CI remains focused on the Node and desktop behavior rather than building three OS release bundles for every change.
+Platform package assembly remains a manual/tag release workflow rather than an every-PR build.

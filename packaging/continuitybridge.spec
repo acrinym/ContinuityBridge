@@ -35,6 +35,7 @@ bridge_datas = [
     (str(ROOT / "bin"), "bridge/bin"),
     (str(ROOT / "src"), "bridge/src"),
     (str(ROOT / "package.json"), "bridge"),
+    (str(ROOT / "browser-extension"), "browser-extension"),
     (str(ROOT / "LICENSE"), "."),
     (str(ROOT / "NOTICE"), "."),
 ]
@@ -92,7 +93,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "ContinuityBridge",
             "CFBundleDisplayName": "ContinuityBridge",
-            "CFBundleShortVersionString": "0.8.0",
+            "CFBundleShortVersionString": "0.9.0",
             "NSHighResolutionCapable": True,
         },
     )

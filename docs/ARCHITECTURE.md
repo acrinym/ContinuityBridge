@@ -2,73 +2,70 @@
 
 ## Purpose
 
-ContinuityBridge translates conversation history from chat products into a source-neutral record contract. It does not replace the memory store. Lore remains responsible for durable local storage, full-text search, retrieval, deletion, exclusions, CLI access, and MCP access.
+ContinuityBridge translates user-authorized conversation evidence into a source-neutral record contract. It does not replace the memory store. Lore remains responsible for durable local storage, full-text search, retrieval, deletion, exclusions, CLI access, and MCP access.
 
-## Data path
+## Data paths
 
 ```text
 ChatGPT / Claude ZIP, folder, or JSON
                   │
                   ▼
-          provider resolver
+          provider resolver/parser
                   │
                   ▼
-          provider parser
-                  │
-          ┌───────┴────────┐
-          ▼                ▼
- redacted inspection   normalized batches
-          │                │
-          ▼          ┌─────┴─────┐
-  Desktop browser    ▼           ▼
-                  JSONL       lore push
-                                  │
-                                  ▼
-                           ~/.lore/lore.db
+            normalized batches ───────────────┐
+                                               │
+Explicit live-capture JSON / browser click     │
+                  │                            │
+                  ▼                            │
+        live-capture normalizer                │
+                  │                            │
+                  └──────── normalized batch ──┤
+                                               ▼
+                                    incremental checkpoint
+                                               │
+                                               ▼
+                                           lore push
+                                               │
+                                               ▼
+                                        ~/.lore/lore.db
 ```
 
-## Provider contract
+Inspection, JSONL export, attachment bundling, repository links, and handoff generation remain separate user-facing paths over the same evidence identifiers.
 
-A provider adapter implements:
+## Provider export contract
 
-1. export resolution from ZIP, directory, or JSON;
-2. conversation loading and duplicate reconciliation;
-3. stable conversation IDs;
-4. Lore batch normalization;
-5. bounded inspection summaries for human and GUI review.
+A provider adapter implements export resolution, conversation loading/reconciliation, stable conversation IDs, Lore batch normalization, and bounded inspection summaries. Provider parsing remains outside the desktop package. The GUI invokes the public CLI, so automation and humans receive the same behavior.
 
-Provider parsing remains outside the desktop package. The GUI invokes the public CLI, so automation and humans receive the same behavior.
+## Normalized Lore boundary
 
-## Boundary contract
+Each conversation becomes one Lore source file and one logical session. Imported history uses `<provider>:<conversation-id>`. Live capture uses `live:<lore-source>:<conversation-id>` so active capture cannot collide with a provider export namespace by accident.
 
-Each conversation becomes one Lore source file and one logical session:
+Each source file includes a source/session ID, source namespace, `primary` kind, non-sensitive virtual path, content resume token, and indexed timestamp. Each message carries a stable synthetic message ID, source/session IDs, deterministic or provider message UUID, parent UUID, sequence, normalized role, timestamp/model when available, project, searchable redacted text, and truncation state.
 
-- `sourceFileId`: `<provider>:<conversation-id>`
-- `sessionId`: same as `sourceFileId`
-- `source`: `chatgpt` or `claude` by default
-- `kind`: `primary`
-- `resumeToken`: SHA-256 of the exported conversation object
-- `path`: a non-sensitive provider export URI, never the user's filesystem path
+## Explicit live-capture contract
 
-Each message carries:
+`continuity-bridge/live-capture-v1` is an input contract, not another database format. It carries provider/source identity, conversation ID/title/source URL, and ordered user/assistant/system messages.
 
-- stable synthetic `messageId`;
-- source and session IDs;
-- original or deterministic message UUID;
-- parent UUID;
-- deterministic sequence;
-- normalized role;
-- timestamp and model when exported;
-- searchable redacted text;
-- truncation state.
+The normalizer removes credentials/query/fragment data from source URLs, redacts credential-like message text by default, assigns a separate live source namespace, creates stable Lore message IDs, and computes a content resume token.
+
+The HTTP receiver is a transport around this same function. It binds only to `127.0.0.1`, requires a bearer token, serializes capture writes, and calls the same ingestion function used by one-shot `capture submit`.
+
+The Manifest V3 browser companion has no background capture loop. Its popup injects a one-shot visible-message extractor only after a user click and then POSTs the public payload to the loopback receiver.
+
+## Incremental boundary
+
+Imports and live capture share the same destination-aware incremental manifest machinery. A batch is compared by its resume token; unchanged batches are skipped; changed batches are sent through Lore; checkpoint state is updated only after a confirmed `lore push`.
+
+This keeps capture refresh semantics aligned with export refresh semantics and avoids a second persistence subsystem.
 
 ## ChatGPT fidelity
 
-ChatGPT conversations can contain regenerated answers and alternate child branches. The adapter finds every root, traverses child nodes deterministically, retains every message once, and preserves parent relations.
+Export ingestion retains regenerated/alternate branches where the export supplies them. Browser live capture intentionally represents only the recognized visible conversation state at capture time; it does not claim hidden branch fidelity that the page does not expose.
 
 ## Claude fidelity
 
-Claude exports are represented as ordered message collections. The adapter supports common root containers and message fields, preserves explicit parent IDs, and otherwise connects messages in exported chronological order.
+Claude exports preserve ordered messages and explicit parent IDs when available. Browser live capture similarly represents recognized visible message containers only.
 
 ## Why use `lore push`
 
@@ -76,8 +73,8 @@ The push interface is Lore's validated universal write boundary. ContinuityBridg
 
 ## Desktop process boundary
 
-The Python desktop client constructs argument arrays and uses `shell=False`. Long-running work executes on worker threads; UI changes happen only on Tkinter's main thread through a queue.
+The Python desktop client constructs argument arrays and uses `shell=False`. Long-running work executes on worker threads; UI changes happen on Tkinter's main thread through a queue. The live receiver is a child process owned by the Workstation and is terminated when that Workstation closes.
 
 ## Extension model
 
-A new provider should add an adapter and synthetic fixtures, then expose matching `inspect-<provider>` and `import-<provider>` commands. It should not create another database, MCP server, or search engine unless the shared-store contract proves insufficient.
+A new export provider should add an adapter and synthetic fixtures, then expose matching inspection/import commands. A new live-capture surface should emit `live-capture-v1` or translate explicitly into that contract. Neither path should create another database, MCP server, hidden scraper, or provider-private API client unless the public/local contract genuinely proves insufficient.

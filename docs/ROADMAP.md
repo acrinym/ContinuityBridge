@@ -72,38 +72,42 @@ The roadmap is organized around user-visible product capabilities. Tests and saf
 - Packaged Node runtime + ContinuityBridge engine for Windows, macOS, and Linux release bundles.
 - Preview remains non-mutating; artifact copying remains explicit.
 
-Success condition achieved: a user can launch one application and go from exported history to real source recall to a portable continuation package without opening separate ContinuityBridge utilities.
+### 0.8 — Repository-aware continuity links
+
+- User-owned lightweight repository-link metadata; no copied message bodies or graph database.
+- Credential-free repository identity with local fallback.
+- Explicit evidence → repository / issue / pull-request links.
+- Repository-filtered Recall and Recall → Continue context restoration.
+- Related exact Lore evidence and prior handoffs surfaced in Continue.
+- `handoff-v3` issue/PR coordinates and automatic handoff backlinking.
+- Ambiguous multi-repository evidence requires explicit repository selection.
+- Query-derived handoff anchors are linked using the exact resolved Lore message IDs.
+
+Success condition achieved: repository/code context can narrow and restore continuity while Lore remains the sole conversation evidence store.
 
 ## Active train
 
-### 0.8 — Repository-aware continuity links
+### 0.9 — Explicit live capture
 
-Goal: make code context a first-class way to find and continue evidence without creating another graph database or duplicating Lore.
+Goal: let a user deliberately carry supported active conversations into Lore without waiting for a full export, hidden scraping, or provider-private APIs.
 
 Ship:
 
-- A small user-owned `repository-links.json` that links repositories to real Lore message/session IDs and generated handoff paths.
-- Stable repository identity derived from credential-free Git remotes, falling back to explicit local repository identity when no remote exists.
-- Explicit issue and pull-request references stored as lightweight continuity coordinates.
-- Recall filtering by linked repository context.
-- An explicit “link selected evidence” action that associates the chosen Lore record with current repository coordinates plus optional issue/PR refs.
-- Recall → Continue transfer that restores the linked local repository and related issue/PR context when available.
-- Continue “Find related continuity” that surfaces linked Lore message IDs, prior handoffs, issues, and pull requests for the selected repository.
-- “Add related evidence” to reuse exact linked Lore message IDs rather than inventing summaries.
-- Generated handoffs upgraded to `continuity-bridge/handoff-v3` with issue and pull-request coordinates under repository metadata.
-- Repository-reference URL credential scrubbing and explicit repository verification rules.
-- Automatic association of successfully built handoffs back to the selected repository context.
+- Public `continuity-bridge/live-capture-v1` payload contract for ordered conversation messages.
+- Normalization into the same Lore batch boundary as imported history.
+- Shared incremental resume-token/checkpoint behavior so unchanged captures are skipped.
+- `continuity-bridge capture inspect` for non-mutating validation.
+- `continuity-bridge capture submit ... --to-lore` for explicit one-shot local/desktop ingestion.
+- `continuity-bridge capture serve --to-lore` as an authenticated `127.0.0.1`-only receiver.
+- A clear Workstation Capture area with OFF/ON state, exact destination, port, fresh token, Start/Stop, manual file path, and last result.
+- A bundled Manifest V3 browser companion that performs one-shot extraction only after an explicit Capture click.
+- Supported ChatGPT/Claude browser capture only when recognized visible message markers are present; otherwise refuse rather than guess.
+- Credential/query/fragment stripping from captured source URLs and existing credential redaction on message text by default.
+- Workstation-owned receiver lifecycle: closing the application stops its receiver child process.
 
-Success condition: link recalled evidence to a repository, issue, or pull request; later choose that repository in Continue; recover the exact linked Lore evidence and prior handoffs; build a continuation package that carries current Git coordinates plus those issue/PR references without introducing another evidence database.
+Success condition: start Capture, explicitly capture a supported visible conversation into Lore, see unchanged repeated capture skip through the incremental checkpoint, capture a new message as an update, retrieve it through Recall, then stop Capture and leave no listener running.
 
-## Next product trains
-
-### 0.9 — Explicit live capture
-
-- User-controlled capture from supported local/browser/desktop surfaces when technically available.
-- Clear on/off state and destination.
-- Incremental writes through the same normalized public contract.
-- No hidden scraping and no assumption that provider-private APIs exist.
+## Next product train
 
 ### 1.0 — Finished public continuity workstation
 
@@ -111,6 +115,7 @@ Release criteria:
 
 - Import/browse supported chat exports.
 - Incrementally refresh existing history.
+- Explicitly capture supported active conversations with clear on/off and destination state.
 - Search and inspect source evidence inside the Workstation.
 - Narrow recall and continuation by repository/code context.
 - Configure and prove MCP access from supported clients.
@@ -141,6 +146,7 @@ ContinuityBridge will not become:
 - an autonomous system that changes client configuration without user confirmation;
 - an identity-preservation or assistant-personality product;
 - a provider-URL downloader or blind filesystem scraper for attachments;
+- a hidden always-on browser/desktop scraper;
 - recursive auditing, review-of-review, test-of-test, or governance machinery whose main output is more internal inspection.
 
 The direction remains simple: make continuity easier to **import, find, connect, carry, and continue**.
