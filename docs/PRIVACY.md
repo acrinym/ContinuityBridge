@@ -58,7 +58,7 @@ Live capture has the following boundaries:
 - no provider cookies, private APIs, signed URLs, or hidden desktop transcript stores are exported by ContinuityBridge;
 - local/desktop tools without a supported transcript surface can emit the public `continuity-bridge/live-capture-v1` JSON contract instead.
 
-The browser companion stores its loopback port/token in extension-local browser storage for usability. The token authorizes only that local receiver and stops being useful after the receiver stops or its token changes.
+The browser companion stores its loopback port/token in extension-local browser storage for usability. The token authorizes only that local receiver and stops being useful after the receiver stops or its token changes. The stored value remains in extension-local storage until it is replaced or cleared.
 
 ## AI-client configuration
 
@@ -74,7 +74,7 @@ The generated `attachments.json` manifest contains safe provenance and integrity
 
 ## Desktop settings
 
-The Workstation stores convenience preferences under `~/.continuity-bridge/`. These settings do not contain conversation previews or copied attachment contents. Repository-link metadata contains coordinates and Lore IDs rather than message bodies. The live receiver token is intentionally not saved.
+The Workstation stores convenience preferences under `~/.continuity-bridge/`. These settings do not contain conversation previews or copied attachment contents. Repository-link metadata contains coordinates and Lore IDs rather than message bodies. The Workstation does not save the live receiver token in its desktop settings; the browser companion's separate extension-local token storage is described above.
 
 Packaged Lore command migration recognizes prior `ContinuityBridgeLore` paths so app-folder replacement can retarget to the current sibling launcher; explicit custom Lore paths are preserved.
 
