@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ContinuityBridge mark</title>
+  <desc id="desc">Four connected bridge arcs meet at a central continuity point.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0e162a"/>
+      <stop offset="1" stop-color="#080c18"/>
+    </linearGradient>
+    <linearGradient id="a" x1="0" x2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" x2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="30" y="30" width="452" height="452" rx="108" fill="url(#bg)"/>
+  <g fill="none" stroke-linecap="round" stroke-width="44" filter="url(#glow)">
+    <path d="M102 318 Q174 180 256 256" stroke="url(#a)"/>
+    <path d="M256 256 Q338 332 410 194" stroke="url(#a)"/>
+    <path d="M102 194 Q174 332 256 256" stroke="url(#b)"/>
+    <path d="M256 256 Q338 180 410 318" stroke="url(#b)"/>
+  </g>
+  <circle cx="256" cy="256" r="34" fill="#22d3ee"/>
+</svg>

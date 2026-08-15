@@ -9,6 +9,8 @@ import sys
 ROOT = Path(SPECPATH).parent
 LORE_RUNTIME = ROOT / "packaging" / "lore-runtime"
 LORE_ENTRY = LORE_RUNTIME / "node_modules" / "@jordanhindo" / "lore" / "dist" / "cli" / "lore.js"
+ICON_DIR = ROOT / "assets" / "icons"
+APP_ICON = ICON_DIR / "continuitybridge-256.png"
 
 
 def resolve_node_executable() -> str:
@@ -35,6 +37,8 @@ if not LORE_ENTRY.is_file():
     raise SystemExit(
         "Bundled Lore runtime is missing. Build the pinned Lore source into packaging/lore-runtime before PyInstaller."
     )
+if not APP_ICON.is_file():
+    raise SystemExit("ContinuityBridge application icon is missing from assets/icons.")
 
 NODE = resolve_node_executable()
 
@@ -43,6 +47,7 @@ bridge_datas = [
     (str(ROOT / "src"), "bridge/src"),
     (str(ROOT / "package.json"), "bridge"),
     (str(ROOT / "browser-extension"), "browser-extension"),
+    (str(ICON_DIR), "assets/icons"),
     (str(LORE_RUNTIME), "lore-runtime"),
     (str(ROOT / "LICENSE"), "."),
     (str(ROOT / "NOTICE"), "."),
@@ -85,6 +90,7 @@ app_exe = EXE(
     [],
     exclude_binaries=True,
     name="ContinuityBridge",
+    icon=str(APP_ICON) if sys.platform in {"win32", "darwin"} else None,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -133,7 +139,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         collection,
         name="ContinuityBridge.app",
-        icon=None,
+        icon=str(APP_ICON),
         bundle_identifier="com.acrinym.continuitybridge",
         info_plist={
             "CFBundleName": "ContinuityBridge",
