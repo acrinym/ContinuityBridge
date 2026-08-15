@@ -67,7 +67,14 @@ The receiver binds only to `127.0.0.1`. There is no background LAN listener and 
 
 Unsupported page structures are refused instead of being guessed.
 
-Local tools may also emit the public `continuity-bridge/live-capture-v1` JSON format and use the inspect/submit CLI paths.
+Local tools may also emit the public [`continuity-bridge/live-capture-v1`](TRAIN-009.md#public-live-capture-contract) JSON format. Inspect a capture before changing Lore, then submit it explicitly:
+
+```bash
+continuity-bridge capture inspect capture.json
+continuity-bridge capture submit capture.json --to-lore
+```
+
+Use `-` instead of `capture.json` to read the capture from standard input.
 
 ## Continue
 
