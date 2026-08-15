@@ -39,6 +39,15 @@ Refusal is intentional when the visible page does not match a supported ChatGPT/
 
 ContinuityBridge does not fall back to scraping arbitrary page text. Use an export or the public live-capture JSON contract if the provider UI has changed and support has not yet caught up.
 
+For a tool that emits the [`continuity-bridge/live-capture-v1`](TRAIN-009.md#public-live-capture-contract) contract, inspect the file first and submit it to Lore only as a separate explicit step:
+
+```bash
+continuity-bridge capture inspect capture.json
+continuity-bridge capture submit capture.json --to-lore
+```
+
+Use `-` instead of `capture.json` to read from standard input. If `capture inspect` rejects the file, fix the producer or capture data rather than bypassing validation.
+
 ## An unchanged capture/import was skipped
 
 That is expected incremental behavior. ContinuityBridge checkpoints confirmed destination writes and skips unchanged source evidence on later refreshes.
