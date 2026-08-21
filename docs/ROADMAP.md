@@ -63,6 +63,8 @@ The roadmap is organized around user-visible product capabilities. Tests and saf
 - Explicit attachment selection before any copy operation.
 - Portable bundles with SHA-256 verified local artifacts and provenance.
 - Explicit missing/ambiguous states and no provider-private download pointers.
+- **Encrypted portable bundles (.cbx)** with AES-256-GCM encryption and scrypt key derivation.
+- Desktop Handoff Builder includes Encrypt/Inspect/Restore operations.
 
 ### 0.7 — ContinuityBridge Workstation
 

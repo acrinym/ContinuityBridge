@@ -551,8 +551,8 @@ class HandoffBuilderApp:
     def _browse_portable_encrypt_output(self) -> None:
         path = filedialog.asksaveasfilename(
             title="Save encrypted bundle",
-            defaultextension=".cbb",
-            filetypes=(("Encrypted bundle", "*.cbb"), ("All files", "*.*")),
+            defaultextension=".cbx",
+            filetypes=(("Encrypted bundle", "*.cbx"), ("All files", "*.*")),
         )
         if path:
             self.portable_encrypt_output_var.set(path)
@@ -560,7 +560,7 @@ class HandoffBuilderApp:
     def _browse_portable_inspect_input(self) -> None:
         path = filedialog.askopenfilename(
             title="Choose encrypted bundle to inspect",
-            filetypes=(("Encrypted bundle", "*.cbb"), ("All files", "*.*")),
+            filetypes=(("Encrypted bundle", "*.cbx"), ("All files", "*.*")),
         )
         if path:
             self.portable_inspect_input_var.set(path)
@@ -568,7 +568,7 @@ class HandoffBuilderApp:
     def _browse_portable_restore_input(self) -> None:
         path = filedialog.askopenfilename(
             title="Choose encrypted bundle to restore",
-            filetypes=(("Encrypted bundle", "*.cbb"), ("All files", "*.*")),
+            filetypes=(("Encrypted bundle", "*.cbx"), ("All files", "*.*")),
         )
         if path:
             self.portable_restore_input_var.set(path)
@@ -602,9 +602,14 @@ class HandoffBuilderApp:
         self._set_busy(True, "Encrypting portable bundle…")
         client = self._portable_client()
 
+        # Capture passphrase for worker, then clear from UI
+        capture_passphrase = passphrase
+        self.portable_passphrase_var.set("")
+        self.portable_passphrase_confirm_var.set("")
+
         def worker() -> None:
             try:
-                client.encrypt(input_path, output_path, passphrase)
+                client.encrypt(input_path, output_path, capture_passphrase)
                 self.events.put(("portable_encrypt", output_path))
             except Exception as error:
                 self.events.put(("portable_error", str(error)))
@@ -627,9 +632,13 @@ class HandoffBuilderApp:
         self._set_busy(True, "Inspecting encrypted bundle…")
         client = self._portable_client()
 
+        # Capture passphrase for worker, then clear from UI
+        capture_passphrase = passphrase
+        self.portable_passphrase_var.set("")
+
         def worker() -> None:
             try:
-                result = client.inspect(input_path, passphrase, json_output=False)
+                result = client.inspect(input_path, capture_passphrase, json_output=False)
                 self.events.put(("portable_inspect", result.get("stdout", "")))
             except Exception as error:
                 self.events.put(("portable_error", str(error)))
@@ -656,9 +665,13 @@ class HandoffBuilderApp:
         self._set_busy(True, "Restoring encrypted bundle…")
         client = self._portable_client()
 
+        # Capture passphrase for worker, then clear from UI
+        capture_passphrase = passphrase
+        self.portable_passphrase_var.set("")
+
         def worker() -> None:
             try:
-                result = client.restore(input_path, output_path, passphrase, overwrite=False)
+                result = client.restore(input_path, output_path, capture_passphrase, overwrite=False)
                 self.events.put(("portable_restore", (output_path, result.get("stdout", ""))))
             except Exception as error:
                 self.events.put(("portable_error", str(error)))

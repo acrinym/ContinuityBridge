@@ -5,31 +5,34 @@ import { encryptBundle, inspectBundle, restoreBundle, SCHEMA_VERSION } from "./e
 const USAGE = `continuity-bridge portable — encrypted portable continuity bundles
 
 Usage:
-  continuity-bridge portable encrypt <handoff-or-bundle-path> --output <file> [--passphrase <pass>]
-  continuity-bridge portable inspect <encrypted-file> [--json] [--passphrase <pass>]
-  continuity-bridge portable restore <encrypted-file> --output <directory> [--overwrite] [--passphrase <pass>]
+  continuity-bridge portable encrypt <handoff-or-bundle-path> --output <file> [--overwrite]
+  continuity-bridge portable inspect <encrypted-file> [--json]
+  continuity-bridge portable restore <encrypted-file> --output <directory> [--overwrite]
 
 Options:
   --output <path>          Output path for encrypt (file) or restore (directory).
-  --overwrite             Replace existing files during restore.
+  --overwrite             Replace existing files (encrypt output or restore destination).
   --json                  Emit machine-readable JSON for inspect.
-  --passphrase <pass>     Passphrase (NOT recommended; use stdin instead).
+  --passphrase-stdin      Read passphrase from stdin (two lines for encrypt: passphrase + confirmation).
 
 Encrypt options:
-  Creates an encrypted portable bundle from a handoff file or attachment bundle directory.
+  Creates an encrypted portable bundle (.cbx) from a handoff file or attachment bundle directory.
+  Passphrase is read from stdin (two lines: passphrase and confirmation).
 
 Inspect options:
-  Non-mutating preview of an encrypted bundle. Prompts for passphrase if not provided.
+  Non-mutating preview of an encrypted bundle. Reads passphrase from stdin.
   Use --json for machine-readable output.
 
 Restore options:
-  Extracts an encrypted bundle to a directory. Prompts for passphrase if not provided.
-  Refuses traversal attacks, absolute paths, and hash mismatches.
+  Extracts an encrypted bundle to a directory. Reads passphrase from stdin.
+  Refuses traversal attacks, absolute paths, symlinks, and hash mismatches.
 
 Examples:
-  continuity-bridge portable encrypt ./my-handoff --output encrypted.cbb
-  continuity-bridge portable inspect encrypted.cbb --json
-  continuity-bridge portable restore encrypted.cbb --output ./restored --overwrite
+  continuity-bridge portable encrypt ./my-handoff --output encrypted.cbx
+  continuity-bridge portable inspect encrypted.cbx --json
+  continuity-bridge portable restore encrypted.cbx --output ./restored --overwrite
+
+Note: Passphrase must be provided via stdin. For encrypt, send two lines (passphrase + confirmation).
 `;
 
 function promptPassphrase(promptText, confirm = false) {
@@ -38,6 +41,8 @@ function promptPassphrase(promptText, confirm = false) {
       input: process.stdin,
       output: process.stdout,
     });
+    // Disable echo for passphrase input
+    rl.stdoutMuted = true;
     rl.question(promptText, (passphrase) => {
       rl.close();
       if (!passphrase || passphrase.trim() === "") {
@@ -49,6 +54,7 @@ function promptPassphrase(promptText, confirm = false) {
           input: process.stdin,
           output: process.stdout,
         });
+        rl2.stdoutMuted = true;
         rl2.question("Confirm passphrase: ", (confirmPassphrase) => {
           rl2.close();
           if (passphrase !== confirmPassphrase) {
@@ -64,32 +70,45 @@ function promptPassphrase(promptText, confirm = false) {
   });
 }
 
-function getPassphraseFromStdin() {
+function getPassphraseFromStdin(lineCount = 1) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    const stream = createReadStream("/dev/stdin");
-    stream.on("data", (chunk) => chunks.push(chunk));
+    const stream = process.stdin;
+    let bytesRead = 0;
+    stream.on("data", (chunk) => {
+      chunks.push(chunk);
+      bytesRead += chunk.length;
+      // Keep reading until we have enough newlines or EOF
+    });
     stream.on("end", () => {
-      const input = Buffer.concat(chunks).toString("utf8").trim();
-      if (!input) {
-        reject(new Error("no passphrase provided on stdin"));
+      const input = Buffer.concat(chunks).toString("utf8");
+      const lines = input.trim().split("\n").filter((l) => l.length > 0);
+      if (lines.length < lineCount) {
+        reject(new Error(`expected ${lineCount} passphrase line(s) on stdin, got ${lines.length}`));
         return;
       }
-      resolve(input);
+      if (lineCount === 1) {
+        resolve(lines[0]);
+      } else {
+        resolve({ passphrase: lines[0], confirmation: lines[1] });
+      }
     });
     stream.on("error", reject);
   });
 }
 
 async function getPassphrase(options, requireConfirm = false) {
-  if (options.passphrase) {
-    return options.passphrase;
+  // Passphrase must come from stdin (either --passphrase-stdin flag or TTY prompt)
+  if (options.passphraseStdin) {
+    return getPassphraseFromStdin(requireConfirm ? 2 : 1);
   }
-  if (!process.stdin.isTTY) {
-    return getPassphraseFromStdin();
+  // For TTY, prompt interactively
+  if (process.stdin.isTTY) {
+    const action = requireConfirm ? "Enter encryption passphrase: " : "Enter passphrase: ";
+    return promptPassphrase(action, requireConfirm);
   }
-  const action = requireConfirm ? "Enter encryption passphrase: " : "Enter passphrase: ";
-  return promptPassphrase(action, requireConfirm);
+  // Non-TTY without explicit --passphrase-stdin is an error
+  throw new Error("passphrase required via --passphrase-stdin or TTY prompt");
 }
 
 export function parsePortableArgs(argv) {
@@ -99,7 +118,7 @@ export function parsePortableArgs(argv) {
     output: null,
     overwrite: false,
     json: false,
-    passphrase: null,
+    passphraseStdin: false,
   };
 
   let i = 0;
@@ -121,9 +140,8 @@ export function parsePortableArgs(argv) {
       parsed.overwrite = true;
     } else if (arg === "--json") {
       parsed.json = true;
-    } else if (arg === "--passphrase" && i + 1 < argv.length) {
-      parsed.passphrase = argv[i + 1];
-      i += 1;
+    } else if (arg === "--passphrase-stdin") {
+      parsed.passphraseStdin = true;
     } else if (!arg.startsWith("--") && !parsed.input) {
       parsed.input = arg;
     } else {
@@ -175,8 +193,12 @@ export async function runPortableCli(argv) {
 
   try {
     if (args.command === "encrypt") {
-      const passphrase = await getPassphrase(args, true);
-      const result = await encryptBundle(args.input, args.output, passphrase);
+      const passphraseData = await getPassphrase(args, true);
+      // Handle both object (from stdin) and string (from TTY) cases
+      const passphrase = typeof passphraseData === "object" ? passphraseData.passphrase : passphraseData;
+      const result = await encryptBundle(args.input, args.output, passphrase, {
+        overwrite: args.overwrite,
+      });
       process.stdout.write(
         `Encrypted ${result.fileCount} file(s) to ${result.outputPath}.\n` +
           `Bundle schema: ${result.schema}\n` +
@@ -186,7 +208,8 @@ export async function runPortableCli(argv) {
     }
 
     if (args.command === "inspect") {
-      const passphrase = await getPassphrase(args, false);
+      const passphraseData = await getPassphrase(args, false);
+      const passphrase = typeof passphraseData === "object" ? passphraseData.passphrase : passphraseData;
       const result = await inspectBundle(args.input, passphrase);
       if (args.json) {
         process.stdout.write(
@@ -217,7 +240,8 @@ export async function runPortableCli(argv) {
     }
 
     if (args.command === "restore") {
-      const passphrase = await getPassphrase(args, false);
+      const passphraseData = await getPassphrase(args, false);
+      const passphrase = typeof passphraseData === "object" ? passphraseData.passphrase : passphraseData;
       const result = await restoreBundle(args.input, args.output, passphrase, {
         overwrite: args.overwrite,
       });

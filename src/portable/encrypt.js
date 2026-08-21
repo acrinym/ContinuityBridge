@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readFile, writeFile, stat, readdir, mkdir, rm, copyFile } from "node:fs/promises";
+import { readFile, writeFile, stat, lstat, readdir, mkdir, rm, copyFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, isAbsolute, sep } from "node:path";
 
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
@@ -13,6 +13,19 @@ const SCRYPT_PARAMS = {
   p: 1,
 };
 const SCHEMA_VERSION = "continuity-bridge/encrypted-bundle-v1";
+const SCHEMA_FORMAT_VERSION = 1;
+
+// Magic header: "CBX" followed by format version byte
+const MAGIC_HEADER = Buffer.from("CBX");
+const HEADER_VERSION_OFFSET = MAGIC_HEADER.length;
+const HEADER_SALT_OFFSET = HEADER_VERSION_OFFSET + 1;
+const HEADER_NONCE_OFFSET = HEADER_SALT_OFFSET + SALT_LENGTH;
+const HEADER_TAG_OFFSET = HEADER_NONCE_OFFSET + NONCE_LENGTH;
+const HEADER_TOTAL_LENGTH = HEADER_TAG_OFFSET + 16; // 16 bytes for GCM auth tag
+
+// Reserved/unsupported algorithm identifiers
+const SUPPORTED_ALGORITHMS = ["aes-256-gcm"];
+const SUPPORTED_KDFS = ["scrypt"];
 
 function safeFileName(name) {
   const cleaned = String(name ?? "file")
@@ -23,6 +36,79 @@ function safeFileName(name) {
     .replace(/^\.+/, "")
     .slice(0, 140);
   return cleaned || "file";
+}
+
+// Validate a path for restore - reject absolute, traversal, special chars, etc.
+function validateRestorePath(path, restoreRoot) {
+  const errors = [];
+
+  // Check for empty path
+  if (!path || path.trim() === "") {
+    errors.push("empty path");
+    return errors;
+  }
+
+  // Check for absolute path
+  if (isAbsolute(path)) {
+    errors.push(`absolute path not allowed: ${path}`);
+  }
+
+  // Check for traversal attempts
+  const normalized = path.replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (normalized.includes("..")) {
+    errors.push(`traversal not allowed: ${path}`);
+  }
+
+  // Check for drive letters (Windows)
+  if (/^[a-zA-Z]:/.test(path)) {
+    errors.push(`drive letter not allowed: ${path}`);
+  }
+
+  // Check for UNC paths
+  if (path.startsWith("\\\\") || path.startsWith("//")) {
+    errors.push(`UNC path not allowed: ${path}`);
+  }
+
+  // Check for NUL and control characters
+  if (/[\x00-\x1f]/.test(path)) {
+    errors.push(`control characters not allowed: ${path}`);
+  }
+
+  // Check for Windows device names
+  const deviceNames = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+  const baseName = path.split(/[/\\]/)[0].toUpperCase();
+  if (deviceNames.includes(baseName)) {
+    errors.push(`Windows device name not allowed: ${path}`);
+  }
+
+  // Check for trailing dot or space
+  if (path.endsWith(".") || path.endsWith(" ")) {
+    errors.push(`trailing dot/space not allowed: ${path}`);
+  }
+
+  // Check that resolved path stays within restore root
+  const resolvedPath = resolve(restoreRoot, path);
+  const resolvedRoot = resolve(restoreRoot);
+  if (!resolvedPath.startsWith(resolvedRoot + sep) && resolvedPath !== resolvedRoot) {
+    errors.push(`path escapes restore root: ${path}`);
+  }
+
+  return errors;
+}
+
+// Check for case-insensitive duplicate paths (Windows/macOS case-insensitivity)
+function checkCaseCollision(paths) {
+  const seen = new Map();
+  const errors = [];
+  for (const path of paths) {
+    const lower = path.toLowerCase().replace(/\\/g, "/");
+    if (seen.has(lower)) {
+      errors.push(`case-insensitive duplicate: ${path} vs ${seen.get(lower)}`);
+    } else {
+      seen.set(lower, path);
+    }
+  }
+  return errors;
 }
 
 async function hashFile(path) {
@@ -39,9 +125,23 @@ function deriveKey(passphrase, salt) {
   return scryptSync(passphrase, salt, KEY_LENGTH, SCRYPT_PARAMS);
 }
 
-export async function encryptBundle(inputPath, outputPath, passphrase) {
+export async function encryptBundle(inputPath, outputPath, passphrase, options = {}) {
   const absoluteInput = resolve(inputPath);
   const absoluteOutput = resolve(outputPath);
+  const overwrite = options.overwrite === true;
+
+  // Check if output already exists
+  try {
+    const outputStat = await stat(absoluteOutput);
+    if (outputStat && !overwrite) {
+      throw new Error(`output file already exists: ${outputPath}; use --overwrite to replace`);
+    }
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      throw err;
+    }
+    // ENOENT is fine - file doesn't exist yet
+  }
 
   const inputStat = await stat(absoluteInput);
   const isDirectory = inputStat.isDirectory();
@@ -50,32 +150,68 @@ export async function encryptBundle(inputPath, outputPath, passphrase) {
   const nonce = randomBytes(NONCE_LENGTH);
   const key = deriveKey(passphrase, salt);
 
+  // Use AAD for authenticated header/version
   const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, nonce);
+  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([SCHEMA_FORMAT_VERSION])]);
+  cipher.setAAD(aadHeader);
 
   const files = [];
   let handoffContent = null;
   let handoffName = null;
+  // Store raw binary content, not base64
   const fileContents = {};
 
   if (isDirectory) {
     const entries = await readdir(absoluteInput, { withFileTypes: true });
     for (const entry of entries) {
+      const entryPath = join(absoluteInput, entry.name);
+
+      // Use lstat to detect symlinks
+      let entryStat;
+      try {
+        entryStat = await lstat(entryPath);
+      } catch {
+        continue;
+      }
+
+      // Reject symlinks in source
+      if (entryStat.isSymbolicLink()) {
+        continue; // Skip symlinks
+      }
+
+      // Handle attachments directory specially
       if (entry.name === "attachments" && entry.isDirectory()) {
-        const attachmentEntries = await readdir(join(absoluteInput, "attachments"));
+        const attachmentEntries = await readdir(join(absoluteInput, "attachments"), { withFileTypes: true });
         for (const attFile of attachmentEntries) {
-          const attPath = join(absoluteInput, "attachments", attFile);
-          const attStat = await stat(attPath);
-          if (attStat.isFile()) {
-            const hash = await hashFile(attPath);
-            const content = await readFile(attPath);
-            fileContents[`attachments/${attFile}`] = content.toString("base64");
-            files.push({
-              relativePath: `attachments/${attFile}`,
-              sha256: hash,
-            });
+          const attPath = join(absoluteInput, "attachments", attFile.name);
+          let attStat;
+          try {
+            attStat = await lstat(attPath);
+          } catch {
+            continue;
           }
+
+          if (attStat.isSymbolicLink() || !attStat.isFile()) {
+            continue; // Skip symlinks and non-regular files
+          }
+
+          const hash = await hashFile(attPath);
+          const content = await readFile(attPath);
+          // Store raw binary (will be converted to JSON-safe format later)
+          fileContents[`attachments/${attFile.name}`] = content;
+          files.push({
+            relativePath: `attachments/${attFile.name}`,
+            sha256: hash,
+          });
         }
-      } else if (entry.name.startsWith("HANDOFF.") && entry.isFile()) {
+      }
+
+      // Only process regular files
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      if (entry.name.startsWith("HANDOFF.") && entry.isFile()) {
         const handoffPath = join(absoluteInput, entry.name);
         handoffContent = await readFile(handoffPath, "utf8");
         handoffName = entry.name;
@@ -89,7 +225,7 @@ export async function encryptBundle(inputPath, outputPath, passphrase) {
         const filePath = join(absoluteInput, entry.name);
         const hash = await hashFile(filePath);
         const content = await readFile(filePath);
-        fileContents[entry.name] = content.toString("base64");
+        fileContents[entry.name] = content;
         files.push({
           relativePath: entry.name,
           sha256: hash,
@@ -97,6 +233,18 @@ export async function encryptBundle(inputPath, outputPath, passphrase) {
       }
     }
   } else {
+    // Single file - use lstat to check for symlink
+    let inputStatCheck;
+    try {
+      inputStatCheck = await lstat(absoluteInput);
+    } catch {
+      throw new Error("cannot access input file");
+    }
+
+    if (inputStatCheck.isSymbolicLink()) {
+      throw new Error("source file is a symlink, refusing to encrypt");
+    }
+
     handoffContent = await readFile(absoluteInput, "utf8");
     handoffName = relative(dirname(absoluteInput), absoluteInput);
     const hash = await hashFile(absoluteInput);
@@ -107,8 +255,17 @@ export async function encryptBundle(inputPath, outputPath, passphrase) {
     });
   }
 
+  // Convert binary contents to base64 for JSON serialization
+  const fileContentsBase64 = {};
+  for (const [path, content] of Object.entries(fileContents)) {
+    fileContentsBase64[path] = content.toString("base64");
+  }
+
   const payload = {
     schema: SCHEMA_VERSION,
+    formatVersion: SCHEMA_FORMAT_VERSION,
+    algorithm: ENCRYPTION_ALGORITHM,
+    kdf: "scrypt",
     createdAt: new Date().toISOString(),
     handoff: handoffContent,
     handoffName,
@@ -117,7 +274,7 @@ export async function encryptBundle(inputPath, outputPath, passphrase) {
       sha256: f.sha256,
       isHandoff: f.isHandoff || false,
     })),
-    fileContents,
+    fileContents: fileContentsBase64,
   };
 
   const payloadJson = JSON.stringify(payload);
@@ -126,13 +283,16 @@ export async function encryptBundle(inputPath, outputPath, passphrase) {
   const encrypted = Buffer.concat([cipher.update(payloadBuffer), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  const header = Buffer.alloc(1 + SALT_LENGTH + NONCE_LENGTH);
-  salt.copy(header, 1);
-  nonce.copy(header, 1 + SALT_LENGTH);
+  // Write header: MAGIC (3) + version (1) + salt (32) + nonce (12) + tag (16)
+  const header = Buffer.alloc(HEADER_TOTAL_LENGTH);
+  MAGIC_HEADER.copy(header, 0);
+  header.writeUInt8(SCHEMA_FORMAT_VERSION, HEADER_VERSION_OFFSET);
+  salt.copy(header, HEADER_SALT_OFFSET);
+  nonce.copy(header, HEADER_NONCE_OFFSET);
+  authTag.copy(header, HEADER_TAG_OFFSET);
 
   const output = createWriteStream(absoluteOutput);
   output.write(header);
-  output.write(authTag);
   output.write(encrypted);
   await new Promise((resolve, reject) => {
     output.on("error", reject);
@@ -153,19 +313,33 @@ export async function inspectBundle(encryptedPath, passphrase) {
 
   const fileBuffer = await readFile(absolutePath);
 
-  if (fileBuffer.length < 1 + SALT_LENGTH + NONCE_LENGTH + 16) {
+  // Check minimum length for new header format
+  if (fileBuffer.length < HEADER_TOTAL_LENGTH) {
     throw new Error("invalid encrypted bundle: file too short");
   }
 
-  const version = fileBuffer.readUInt8(0);
-  const salt = fileBuffer.subarray(1, 1 + SALT_LENGTH);
-  const nonce = fileBuffer.subarray(1 + SALT_LENGTH, 1 + SALT_LENGTH + NONCE_LENGTH);
-  const tag = fileBuffer.subarray(1 + SALT_LENGTH + NONCE_LENGTH, 1 + SALT_LENGTH + NONCE_LENGTH + 16);
-  const ciphertext = fileBuffer.subarray(1 + SALT_LENGTH + NONCE_LENGTH + 16);
+  // Verify magic header
+  const fileMagic = fileBuffer.subarray(0, MAGIC_HEADER.length);
+  if (!fileMagic.equals(MAGIC_HEADER)) {
+    throw new Error("invalid encrypted bundle: not a CBX file or unsupported format");
+  }
+
+  const version = fileBuffer.readUInt8(HEADER_VERSION_OFFSET);
+  if (version !== SCHEMA_FORMAT_VERSION) {
+    throw new Error(`unsupported format version: ${version}; supported version: ${SCHEMA_FORMAT_VERSION}`);
+  }
+
+  const salt = fileBuffer.subarray(HEADER_SALT_OFFSET, HEADER_SALT_OFFSET + SALT_LENGTH);
+  const nonce = fileBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
+  const tag = fileBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
+  const ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
 
   const key = deriveKey(passphrase, salt);
 
   const decipher = createDecipheriv(ENCRYPTION_ALGORITHM, key, nonce);
+  // Set AAD for authenticated header/version
+  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([version])]);
+  decipher.setAAD(aadHeader);
   decipher.setAuthTag(tag);
 
   let plaintext;
@@ -184,6 +358,14 @@ export async function inspectBundle(encryptedPath, passphrase) {
 
   if (payload.schema !== SCHEMA_VERSION) {
     throw new Error(`unsupported bundle schema: ${payload.schema}`);
+  }
+
+  // Validate algorithm and KDF
+  if (payload.algorithm && !SUPPORTED_ALGORITHMS.includes(payload.algorithm)) {
+    throw new Error(`unsupported algorithm: ${payload.algorithm}`);
+  }
+  if (payload.kdf && !SUPPORTED_KDFS.includes(payload.kdf)) {
+    throw new Error(`unsupported KDF: ${payload.kdf}`);
   }
 
   return {
@@ -209,19 +391,33 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
 
   const fileBuffer = await readFile(absoluteInput);
 
-  if (fileBuffer.length < 1 + SALT_LENGTH + NONCE_LENGTH + 16) {
+  // Check minimum length for new header format
+  if (fileBuffer.length < HEADER_TOTAL_LENGTH) {
     throw new Error("invalid encrypted bundle: file too short");
   }
 
-  const version = fileBuffer.readUInt8(0);
-  const salt = fileBuffer.subarray(1, 1 + SALT_LENGTH);
-  const nonce = fileBuffer.subarray(1 + SALT_LENGTH, 1 + SALT_LENGTH + NONCE_LENGTH);
-  const tag = fileBuffer.subarray(1 + SALT_LENGTH + NONCE_LENGTH, 1 + SALT_LENGTH + NONCE_LENGTH + 16);
-  const ciphertext = fileBuffer.subarray(1 + SALT_LENGTH + NONCE_LENGTH + 16);
+  // Verify magic header
+  const fileMagic = fileBuffer.subarray(0, MAGIC_HEADER.length);
+  if (!fileMagic.equals(MAGIC_HEADER)) {
+    throw new Error("invalid encrypted bundle: not a CBX file or unsupported format");
+  }
+
+  const version = fileBuffer.readUInt8(HEADER_VERSION_OFFSET);
+  if (version !== SCHEMA_FORMAT_VERSION) {
+    throw new Error(`unsupported format version: ${version}; supported version: ${SCHEMA_FORMAT_VERSION}`);
+  }
+
+  const salt = fileBuffer.subarray(HEADER_SALT_OFFSET, HEADER_SALT_OFFSET + SALT_LENGTH);
+  const nonce = fileBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
+  const tag = fileBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
+  const ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
 
   const key = deriveKey(passphrase, salt);
 
   const decipher = createDecipheriv(ENCRYPTION_ALGORITHM, key, nonce);
+  // Set AAD for authenticated header/version
+  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([version])]);
+  decipher.setAAD(aadHeader);
   decipher.setAuthTag(tag);
 
   let plaintext;
@@ -242,35 +438,75 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     throw new Error(`unsupported bundle schema: ${payload.schema}`);
   }
 
+  // Validate algorithm and KDF
+  if (payload.algorithm && !SUPPORTED_ALGORITHMS.includes(payload.algorithm)) {
+    throw new Error(`unsupported algorithm: ${payload.algorithm}`);
+  }
+  if (payload.kdf && !SUPPORTED_KDFS.includes(payload.kdf)) {
+    throw new Error(`unsupported KDF: ${payload.kdf}`);
+  }
+
+  // === PREFLIGHT VALIDATION ===
+  const preflightErrors = [];
+
+  // 1. Validate all paths before any mutation
+  const pathsToRestore = [];
+  for (const file of payload.files) {
+    const pathErrors = validateRestorePath(file.relativePath, absoluteOutput);
+    preflightErrors.push(...pathErrors.map((e) => `${file.relativePath}: ${e}`));
+    pathsToRestore.push(file.relativePath);
+  }
+
+  // 2. Check for case-insensitive duplicates
+  const caseErrors = checkCaseCollision(pathsToRestore);
+  preflightErrors.push(...caseErrors);
+
+  // 3. Check for duplicate paths in manifest
+  const seenPaths = new Set();
+  for (const file of payload.files) {
+    if (seenPaths.has(file.relativePath)) {
+      preflightErrors.push(`duplicate path in manifest: ${file.relativePath}`);
+    }
+    seenPaths.add(file.relativePath);
+  }
+
+  // If there are preflight errors, abort before any mutation
+  if (preflightErrors.length > 0) {
+    throw new Error(`preflight validation failed:\n  - ${preflightErrors.join("\n  - ")}`);
+  }
+
+  // 4. Check for existing files (collision check)
+  const existingFiles = [];
+  for (const file of payload.files) {
+    const targetPath = join(absoluteOutput, file.relativePath);
+    try {
+      const targetStat = await lstat(targetPath);
+      // Check if it's a symlink - reject
+      if (targetStat.isSymbolicLink()) {
+        throw new Error(`destination is a symlink: ${file.relativePath}`);
+      }
+      if (targetStat.isFile() && !overwrite) {
+        existingFiles.push(file.relativePath);
+      }
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        throw err;
+      }
+      // ENOENT is fine - file doesn't exist
+    }
+  }
+
+  if (existingFiles.length > 0 && !overwrite) {
+    throw new Error(`existing files would be overwritten: ${existingFiles.join(", ")}; use --overwrite to replace`);
+  }
+
+  // === STAGING AND WRITE ===
   await mkdir(absoluteOutput, { recursive: true });
 
   const restored = [];
-  const errors = [];
+  const restoreErrors = [];
 
   for (const file of payload.files) {
-    if (isAbsolute(file.relativePath)) {
-      errors.push(`refusing absolute path: ${file.relativePath}`);
-      continue;
-    }
-
-    const targetPath = join(absoluteOutput, file.relativePath);
-    const normalizedTarget = resolve(targetPath);
-    const normalizedOutput = resolve(absoluteOutput);
-
-    if (!normalizedTarget.startsWith(normalizedOutput + sep)) {
-      errors.push(`refusing traversal path: ${file.relativePath}`);
-      continue;
-    }
-
-    const targetDir = dirname(targetPath);
-    await mkdir(targetDir, { recursive: true });
-
-    const exists = await stat(targetPath).catch(() => null);
-    if (exists && !overwrite) {
-      errors.push(`refusing to overwrite existing file: ${file.relativePath}; use --overwrite to replace`);
-      continue;
-    }
-
     let content = null;
 
     // First check if we have stored content in the payload
@@ -281,16 +517,34 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     }
 
     if (!content) {
-      errors.push(`source file not found: ${file.relativePath}`);
+      restoreErrors.push(`${file.relativePath}: source file not found in bundle`);
       continue;
     }
 
-    // Verify content hash
+    // Verify content hash BEFORE writing
     const contentHash = createHash("sha256").update(content).digest("hex");
     if (contentHash !== file.sha256) {
-      errors.push(`hash mismatch for ${file.relativePath}: expected ${file.sha256}, got ${contentHash}`);
+      restoreErrors.push(`${file.relativePath}: hash mismatch (authenticated data corrupted)`);
       continue;
     }
+
+    const targetPath = join(absoluteOutput, file.relativePath);
+
+    // Check destination is not a symlink (could have changed since preflight)
+    try {
+      const destStat = await lstat(targetPath);
+      if (destStat.isSymbolicLink()) {
+        restoreErrors.push(`${file.relativePath}: destination is a symlink, refusing to overwrite`);
+        continue;
+      }
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        throw err;
+      }
+    }
+
+    const targetDir = dirname(targetPath);
+    await mkdir(targetDir, { recursive: true });
 
     await writeFile(targetPath, content);
 
@@ -305,7 +559,7 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     createdAt: payload.createdAt,
     handoffName: payload.handoffName,
     restoredCount: restored.length,
-    errors,
+    errors: restoreErrors,
   };
 }
 
