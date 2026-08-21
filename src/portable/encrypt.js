@@ -6,20 +6,18 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 
-// Helper to read a range of bytes from a file (start inclusive, end exclusive)
-async function readFileRange(path, start, end) {
-  const chunks = [];
-  const stream = createReadStream(path, { start, end: end - 1 });
-  for await (const chunk of stream) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
+// Maximum manifest size to prevent DoS (1MB)
+const MAX_MANIFEST_SIZE = 1024 * 1024;
+// Maximum passphrase size (1KB)
+const MAX_PASSPHRASE_SIZE = 1024;
 
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
 const SALT_LENGTH = 32;
 const NONCE_LENGTH = 12;
 const KEY_LENGTH = 32;
+const BUNDLE_ID_LENGTH = 16;
+const CREATED_AT_LENGTH = 8;
+const CIPHER_TEXT_LENGTH_LENGTH = 8;
 const SCRYPT_PARAMS = {
   N: 2 ** 14,
   r: 8,
@@ -32,22 +30,101 @@ function splitPath(path) {
 }
 
 const SCHEMA_VERSION = "continuity-bridge/encrypted-bundle-v1";
-// Format version 2: binary streaming format (no base64 JSON amplification)
+// Format version 2: streamable binary format with fixed header
 // Version 1: legacy base64 JSON format (deprecated)
 const SCHEMA_FORMAT_VERSION = 2;
 
-// Magic header: "CBX" followed by format version byte
+// Fixed header layout (used as AAD for GCM):
+// [Magic: 3B][Version: 1B][Salt: 32B][Nonce: 12B][BundleID: 16B][CreatedAt: 8B][CiphertextLength: 8B]
+// Total: 80 bytes
 const MAGIC_HEADER = Buffer.from("CBX");
 const HEADER_VERSION_OFFSET = MAGIC_HEADER.length;
 const HEADER_SALT_OFFSET = HEADER_VERSION_OFFSET + 1;
 const HEADER_NONCE_OFFSET = HEADER_SALT_OFFSET + SALT_LENGTH;
-const HEADER_TAG_OFFSET = HEADER_NONCE_OFFSET + NONCE_LENGTH;
-const HEADER_MANIFEST_SIZE_OFFSET = HEADER_TAG_OFFSET + 16; // 16 bytes for GCM auth tag
-const HEADER_TOTAL_LENGTH = HEADER_MANIFEST_SIZE_OFFSET + 4; // 4 bytes for manifest size (version 2+)
+const HEADER_BUNDLE_ID_OFFSET = HEADER_NONCE_OFFSET + NONCE_LENGTH;
+const HEADER_CREATED_AT_OFFSET = HEADER_BUNDLE_ID_OFFSET + BUNDLE_ID_LENGTH;
+const HEADER_CIPHERTEXT_LENGTH_OFFSET = HEADER_CREATED_AT_OFFSET + CREATED_AT_LENGTH;
+const HEADER_TOTAL_LENGTH = HEADER_CIPHERTEXT_LENGTH_OFFSET + CIPHER_TEXT_LENGTH_LENGTH;
+
+// GCM authentication tag is 16 bytes, appended after ciphertext
+const AUTH_TAG_LENGTH = 16;
 
 // Reserved/unsupported algorithm identifiers
 const SUPPORTED_ALGORITHMS = ["aes-256-gcm"];
 const SUPPORTED_KDFS = ["scrypt"];
+
+// Validate a source path for portability - reject non-portable paths before bundle creation
+function validatePortablePath(relativePath) {
+  const errors = [];
+
+  // Check for empty path
+  if (!relativePath || relativePath.trim() === "") {
+    errors.push("empty path");
+    return errors;
+  }
+
+  // Check for absolute path
+  if (isAbsolute(relativePath)) {
+    errors.push(`absolute path not allowed: ${relativePath}`);
+  }
+
+  // Check for traversal attempts
+  const normalized = relativePath.replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (normalized.includes("..")) {
+    errors.push(`traversal not allowed: ${relativePath}`);
+  }
+
+  // Check for drive letters (Windows)
+  if (/^[a-zA-Z]:/.test(relativePath)) {
+    errors.push(`drive letter not allowed: ${relativePath}`);
+  }
+
+  // Check for UNC paths
+  if (relativePath.startsWith("\\\\") || relativePath.startsWith("//")) {
+    errors.push(`UNC path not allowed: ${relativePath}`);
+  }
+
+  // Check for backslash (not portable)
+  if (relativePath.includes("\\")) {
+    errors.push(`backslash not allowed in path: ${relativePath}`);
+  }
+
+  // Check for NUL and control characters
+  if (/[\x00-\x1f]/.test(relativePath)) {
+    errors.push(`control characters not allowed: ${relativePath}`);
+  }
+
+  // Check for Windows-invalid characters
+  if (/[<>:"|?*]/.test(relativePath)) {
+    errors.push(`Windows-invalid characters not allowed: ${relativePath}`);
+  }
+
+  // Check for Windows device names in any component
+  const components = relativePath.split(/[/\\]/).filter(Boolean);
+  const deviceNames = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+  for (const comp of components) {
+    const baseName = comp.split(".")[0].toUpperCase();
+    if (deviceNames.includes(baseName)) {
+      errors.push(`Windows device name not allowed: ${relativePath}`);
+      break;
+    }
+  }
+
+  // Check for trailing dot or space in any component
+  for (const comp of components) {
+    if (comp.endsWith(".") || comp.endsWith(" ")) {
+      errors.push(`trailing dot/space not allowed in component: ${relativePath}`);
+      break;
+    }
+  }
+
+  // Check for . or .. as a component
+  if (components.includes(".") || components.includes("..")) {
+    errors.push(`. or .. components not allowed: ${relativePath}`);
+  }
+
+  return errors;
+}
 
 // Recursively scan directory for all files, building manifest with hashes and sizes
 // This is bounded-memory: only stores metadata, not file contents
@@ -58,6 +135,12 @@ async function scanDirectoryRecursive(basePath, relativePath = "") {
   for (const entry of entries) {
     const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
     const entryAbsPath = join(basePath, entry.name);
+    
+    // Validate portable path BEFORE processing
+    const pathErrors = validatePortablePath(entryRelPath);
+    if (pathErrors.length > 0) {
+      throw new Error(`source contains non-portable path: ${entryRelPath}; ${pathErrors.join(", ")}`);
+    }
     
     // Use lstat to detect symlinks
     let entryStat;
@@ -228,69 +311,88 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
   const absoluteOutput = resolve(outputPath);
   const overwrite = options.overwrite === true;
 
-  // Check if output already exists
+  // === STEP 1: Check root input with lstat FIRST (before any stat/traversal) ===
+  let inputStat;
   try {
-    const outputStat = await stat(absoluteOutput);
-    if (outputStat && !overwrite) {
-      throw new Error(`output file already exists: ${outputPath}; use --overwrite to replace`);
-    }
-  } catch (err) {
-    if (err.code !== "ENOENT") {
-      throw err;
-    }
-    // ENOENT is fine - file doesn't exist yet
+    inputStat = await lstat(absoluteInput);
+  } catch {
+    throw new Error("cannot access input: does not exist or is inaccessible");
   }
 
-  const inputStat = await stat(absoluteInput);
+  // Reject root symlink-to-directory - must be actual directory, not symlink
+  if (inputStat.isSymbolicLink()) {
+    throw new Error("source root is a symlink; symlinks are not allowed in encrypted bundles");
+  }
+
+  // Reject special files at root
+  if (!inputStat.isFile() && !inputStat.isDirectory()) {
+    throw new Error("source must be a regular file or directory, not a special file");
+  }
+
   const isDirectory = inputStat.isDirectory();
 
-  // Pre-scan all files recursively to build manifest (bounded memory - only metadata)
+  // === STEP 2: Check output file existence ===
+  // For overwrite, we'll use sibling backup strategy - don't delete old file first
+  if (!overwrite) {
+    try {
+      const outputStat = await stat(absoluteOutput);
+      if (outputStat) {
+        throw new Error(`output file already exists: ${outputPath}; use --overwrite to replace`);
+      }
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        throw err;
+      }
+      // ENOENT is fine - file doesn't exist yet
+    }
+  }
+
+  // === STEP 3: Pre-scan all files recursively to build manifest (bounded memory - only metadata) ===
   let scannedFiles = [];
-  let handoffContent = null;
   let handoffName = null;
+  // Track the base path for file streaming - for directories it's the directory itself, for single files it's the parent dir
+  const basePath = isDirectory ? absoluteInput : dirname(absoluteInput);
   
   if (isDirectory) {
-    // Recursively scan all files - throws on symlinks
+    // Recursively scan all files - throws on symlinks and validates portable paths
     scannedFiles = await scanDirectoryRecursive(absoluteInput);
     
-    // Separate handoff files
+    // Find handoff files - require EXACTLY ONE unambiguous handoff
     const handoffFiles = scannedFiles.filter(f => f.isHandoff);
-    const attachmentFiles = scannedFiles.filter(f => !f.isHandoff);
     
-    // Get handoff content
-    if (handoffFiles.length > 0) {
-      const handoffFile = handoffFiles[0];
-      handoffName = handoffFile.relativePath;
-      handoffContent = await readFile(join(absoluteInput, handoffName), "utf8");
+    if (handoffFiles.length === 0) {
+      throw new Error("source directory must contain exactly one handoff file (HANDOFF.md, HANDOFF.json, or HANDOFF.*)");
     }
+    if (handoffFiles.length > 1) {
+      throw new Error(`source directory contains multiple handoff files: ${handoffFiles.map(f => f.relativePath).join(", ")}; exactly one is required`);
+    }
+    
+    // Single unambiguous handoff
+    handoffName = handoffFiles[0].relativePath;
   } else {
-    // Single file - check for symlink and reject
-    let inputStatCheck;
-    try {
-      inputStatCheck = await lstat(absoluteInput);
-    } catch {
-      throw new Error("cannot access input file");
+    // Single file - treat as handoff (no need to read into memory yet)
+    // Validate portable path
+    const pathErrors = validatePortablePath(relative(dirname(absoluteInput), absoluteInput));
+    if (pathErrors.length > 0) {
+      throw new Error(`source file has non-portable path: ${pathErrors.join(", ")}`);
     }
 
-    if (inputStatCheck.isSymbolicLink()) {
-      throw new Error("source file is a symlink, refusing to encrypt");
-    }
-
-    handoffContent = await readFile(absoluteInput, "utf8");
     handoffName = relative(dirname(absoluteInput), absoluteInput);
-    // Compute hash using streaming (bounded memory)
+    
+    // Pre-scan hash and size using streaming (bounded memory)
     const hash = createHash("sha256");
+    let size = 0;
     const stream = createReadStream(absoluteInput);
     for await (const chunk of stream) {
       hash.update(chunk);
+      size += chunk.length;
     }
-    const contentHash = hash.digest("hex");
     
     scannedFiles = [{
       relativePath: handoffName,
-      sha256: contentHash,
+      sha256: hash.digest("hex"),
       isHandoff: true,
-      size: Buffer.byteLength(handoffContent, "utf8"),
+      size,
     }];
   }
 
@@ -298,31 +400,28 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
     throw new Error("no files to encrypt in input");
   }
 
+  // === STEP 4: Prepare encryption parameters ===
+  const createdAt = BigInt(Date.now());
+  const bundleId = randomBytes(BUNDLE_ID_LENGTH);
+  
   // Create encryption key
   const salt = randomBytes(SALT_LENGTH);
   const nonce = randomBytes(NONCE_LENGTH);
   const key = deriveKey(passphrase, salt);
 
-  // Use AAD for authenticated header/version
-  const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, nonce);
-  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([SCHEMA_FORMAT_VERSION])]);
-  cipher.setAAD(aadHeader);
-
   // Calculate file offsets based on pre-scanned sizes (bounded memory)
   const { filesWithOffsets, fileOrder, totalFileDataSize } = calculateFileOffsets(
     scannedFiles, 
-    handoffContent
+    null // Don't pass handoffContent - stream it like other files
   );
 
   // Build manifest JSON (no file contents - just metadata + offsets)
-  // Note: handoff content is in the binary section, not in JSON
-  // This ensures JSON is always valid and separable from binary data
   const payload = {
     schema: SCHEMA_VERSION,
     formatVersion: SCHEMA_FORMAT_VERSION,
     algorithm: ENCRYPTION_ALGORITHM,
     kdf: "scrypt",
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(Number(createdAt)).toISOString(),
     handoffName,
     files: filesWithOffsets,
     fileOrder: fileOrder,
@@ -332,42 +431,76 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
   const payloadJsonBuffer = Buffer.from(payloadJson, "utf8");
   
   // Create length-prefixed manifest: 4-byte length + JSON
-  // This allows the decryptor to find where JSON ends
   const manifestLengthBuffer = Buffer.alloc(4);
   manifestLengthBuffer.writeUInt32LE(payloadJsonBuffer.length, 0);
+  
+  // Calculate ciphertext length BEFORE encryption so we can set correct AAD
+  // Ciphertext = manifest length (4) + manifest JSON + file data
+  const totalCiphertextSize = 4 + payloadJsonBuffer.length + totalFileDataSize;
 
-  // === BOUNDED-MEMORY STREAMING ENCRYPTION ===
-  // Create a temp file for encrypted output (failure-safe: temp file is sibling to output)
-  // If encryption fails, temp file can be safely removed without corrupting existing output
+  // === STEP 5: BOUNDED-MEMORY STREAMING ENCRYPTION ===
+  // Create temp output file (sibling to final output)
   const tempOutput = absoluteOutput + ".encrypting." + randomBytes(8).toString("hex");
+  
+  // Also create a sibling backup for overwrite mode
+  let backupPath = null;
+  if (overwrite) {
+    try {
+      await stat(absoluteOutput);
+      // File exists - will backup
+      backupPath = absoluteOutput + ".backup." + randomBytes(8).toString("hex");
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        throw err;
+      }
+      // ENOENT - file doesn't exist, no need to backup
+    }
+  }
+
+  let outputHandle;
   let outputStream;
 
   try {
-    outputStream = createWriteStream(tempOutput);
+    // === STEP 5a: Write fixed header first (without ciphertext length - we'll update it) ===
+    // Format: [Magic: 3B][Version: 1B][Salt: 32B][Nonce: 12B][BundleID: 16B][CreatedAt: 8B][CiphertextLength: 8B]
+    const headerBuffer = Buffer.alloc(HEADER_TOTAL_LENGTH);
+    MAGIC_HEADER.copy(headerBuffer, 0);
+    headerBuffer.writeUInt8(SCHEMA_FORMAT_VERSION, HEADER_VERSION_OFFSET);
+    salt.copy(headerBuffer, HEADER_SALT_OFFSET);
+    nonce.copy(headerBuffer, HEADER_NONCE_OFFSET);
+    bundleId.copy(headerBuffer, HEADER_BUNDLE_ID_OFFSET);
+    headerBuffer.writeBigUInt64LE(createdAt, HEADER_CREATED_AT_OFFSET);
+    // Ciphertext length will be written after we know it
+    
+    // Open file for writing
+    outputHandle = await open(tempOutput, "w");
+    
+    // Write header with correct ciphertext length
+    headerBuffer.writeBigUInt64LE(BigInt(totalCiphertextSize), HEADER_CIPHERTEXT_LENGTH_OFFSET);
+    await outputHandle.write(headerBuffer);
+    
+    // === STEP 5b: Stream ciphertext directly after header with backpressure ===
+    const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, nonce);
+    // Authenticate entire header as AAD (including the correct ciphertext length)
+    cipher.setAAD(headerBuffer);
 
     // Stream manifest length prefix through cipher
     const enc1 = cipher.update(manifestLengthBuffer);
-    if (enc1) outputStream.write(enc1);
+    if (enc1) await outputHandle.write(enc1);
 
     // Stream manifest JSON through cipher
     const enc2 = cipher.update(payloadJsonBuffer);
-    if (enc2) outputStream.write(enc2);
+    if (enc2) await outputHandle.write(enc2);
 
     // Stream each file through cipher while verifying hashes (bounded memory)
     for (let i = 0; i < scannedFiles.length; i++) {
       const fileInfo = scannedFiles[i];
 
-      let contentStream;
-      if (fileInfo.isHandoff && handoffContent) {
-        // Handoff content from memory
-        contentStream = Readable.from(Buffer.from(handoffContent, "utf8"));
-      } else {
-        // Stream from file
-        const filePath = join(absoluteInput, fileInfo.relativePath);
-        contentStream = createReadStream(filePath);
-      }
+      // Stream from file (handoff is streamed like any other file)
+      const filePath = join(basePath, fileInfo.relativePath);
+      const contentStream = createReadStream(filePath);
 
-      // Verify hash during streaming
+      // Re-verify hash during streaming
       const hash = createHash("sha256");
       let bytesProcessed = 0;
 
@@ -378,7 +511,7 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
 
         // Stream through cipher directly to output file (bounded memory)
         const encChunk = cipher.update(chunk);
-        if (encChunk) outputStream.write(encChunk);
+        if (encChunk) await outputHandle.write(encChunk);
       }
 
       // Verify hash matches pre-scanned value
@@ -388,80 +521,53 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
       }
 
       // Verify size matches
-      const expectedSize = fileInfo.isHandoff && handoffContent
-        ? Buffer.byteLength(handoffContent, "utf8")
-        : fileInfo.size;
-      if (bytesProcessed !== expectedSize) {
-        throw new Error(`source file modified during encryption: ${fileInfo.relativePath}; size mismatch (expected ${expectedSize}, got ${bytesProcessed})`);
+      if (bytesProcessed !== fileInfo.size) {
+        throw new Error(`source file modified during encryption: ${fileInfo.relativePath}; size mismatch (expected ${fileInfo.size}, got ${bytesProcessed})`);
       }
     }
 
-    // Finalize cipher to get auth tag
+    // === STEP 5c: Finalize cipher and get auth tag ===
     const encFinal = cipher.final();
-    if (encFinal) outputStream.write(encFinal);
+    if (encFinal) await outputHandle.write(encFinal);
     const authTag = cipher.getAuthTag();
 
-    // Calculate total encrypted size
-    const totalEncryptedSize = manifestLengthBuffer.length + payloadJsonBuffer.length + totalFileDataSize;
+    // === STEP 5d: Append auth tag after ciphertext ===
+    await outputHandle.write(authTag);
 
-    // Close output stream and wait for it to finish
-    outputStream.end();
-    await new Promise((resolve, reject) => {
-      outputStream.on("finish", resolve);
-      outputStream.on("error", reject);
-    });
+    // Close the output handle
+    await outputHandle.close();
+    outputHandle = null;
 
-    // Write header: MAGIC (3) + version (1) + salt (32) + nonce (12) + tag (16) + manifestSize (4)
-    // Read the encrypted data size from the temp file
-    const encryptedDataStats = await stat(tempOutput);
-    const encryptedDataSize = encryptedDataStats.size;
-
-    // Verify the encrypted data size matches expected
-    if (encryptedDataSize !== totalEncryptedSize) {
-      throw new Error(`encryption internal error: encrypted data size mismatch (expected ${totalEncryptedSize}, got ${encryptedDataSize})`);
+    // === STEP 6: ATOMIC COMMIT with sibling backup strategy ===
+    if (backupPath) {
+      // Backup existing file
+      await rename(absoluteOutput, backupPath);
     }
 
-    const header = Buffer.alloc(HEADER_TOTAL_LENGTH);
-    MAGIC_HEADER.copy(header, 0);
-    header.writeUInt8(SCHEMA_FORMAT_VERSION, HEADER_VERSION_OFFSET);
-    salt.copy(header, HEADER_SALT_OFFSET);
-    nonce.copy(header, HEADER_NONCE_OFFSET);
-    authTag.copy(header, HEADER_TAG_OFFSET);
-    header.writeUInt32LE(totalEncryptedSize, HEADER_MANIFEST_SIZE_OFFSET);
-
-    // Prepend header to temp file
-    // Read temp file and prepend header, then atomically rename
-    const tempWithHeader = absoluteOutput + ".temp." + randomBytes(8).toString("hex");
     try {
-      const encryptedData = await readFile(tempOutput);
-      const finalOutput = Buffer.concat([header, encryptedData]);
-      await writeFile(tempWithHeader, finalOutput);
-    } catch (readErr) {
-      throw new Error(`encryption internal error: failed to finalize output: ${readErr.message}`);
-    }
-
-    // Remove the intermediate temp file (without header)
-    try {
-      await unlink(tempOutput);
-    } catch {
-      // Ignore - may not exist
-    }
-
-    // === ATOMIC COMMIT ===
-    // If output already exists and we're overwriting, remove it first
-    if (overwrite) {
-      try {
-        await unlink(absoluteOutput);
-      } catch (err) {
-        if (err.code !== "ENOENT") {
-          throw err;
+      // Rename temp to final output
+      await rename(tempOutput, absoluteOutput);
+    } catch (renameErr) {
+      // Rename failed - rollback if we have a backup
+      if (backupPath) {
+        try {
+          await rename(backupPath, absoluteOutput);
+        } catch {
+          // Rollback failed - this is a serious data loss situation
+          throw new Error(`encryption failed and rollback also failed: original data may be lost. Original error: ${renameErr.message}`);
         }
-        // ENOENT is fine - file doesn't exist
+      }
+      throw renameErr;
+    }
+
+    // === STEP 7: Clean up backup after successful commit ===
+    if (backupPath) {
+      try {
+        await rm(backupPath, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
       }
     }
-
-    // Atomically rename temp to final output
-    await rename(tempWithHeader, absoluteOutput);
 
     return {
       schema: SCHEMA_VERSION,
@@ -471,17 +577,20 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
     };
   } catch (encryptionError) {
     // Clean up temp files on failure
+    if (outputHandle) {
+      try {
+        await outputHandle.close();
+      } catch {
+        // Ignore
+      }
+    }
     try {
       await unlink(tempOutput);
     } catch {
-      // Ignore cleanup errors
+      // Ignore
     }
-    try {
-      const tempWithHeader = absoluteOutput + ".temp.";
-      await rm(tempWithHeader, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
+    // Note: We intentionally don't clean up backupPath here - if commit failed after backup,
+    // the original file is still intact in the backup location
     throw encryptionError;
   }
 }
@@ -489,71 +598,86 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
 export async function inspectBundle(encryptedPath, passphrase) {
   const absolutePath = resolve(encryptedPath);
 
-  // === BOUNDED READ: Read only header (fixed size) ===
-  const headerBuffer = await readFile(absolutePath, { length: HEADER_TOTAL_LENGTH });
-
-  // Check minimum length for header format
-  if (headerBuffer.length < HEADER_TOTAL_LENGTH) {
-    throw new Error("invalid encrypted bundle: file too short");
+  // === BOUNDED READ: Use fs.promises.open().read() for fixed header ===
+  let fileHandle;
+  let headerBuffer;
+  try {
+    fileHandle = await open(absolutePath, "r");
+    
+    // Read exactly HEADER_TOTAL_LENGTH bytes for the fixed header
+    headerBuffer = Buffer.alloc(HEADER_TOTAL_LENGTH);
+    const headerReadResult = await fileHandle.read(headerBuffer, 0, HEADER_TOTAL_LENGTH, 0);
+    
+    if (headerReadResult.bytesRead < HEADER_TOTAL_LENGTH) {
+      throw new Error("invalid encrypted bundle: file too short for header");
+    }
+  } finally {
+    if (fileHandle) await fileHandle.close();
   }
 
-  // Verify magic header
+  // Check magic header
   const fileMagic = headerBuffer.subarray(0, MAGIC_HEADER.length);
   if (!fileMagic.equals(MAGIC_HEADER)) {
     throw new Error("invalid encrypted bundle: not a CBX file or unsupported format");
   }
 
   const version = headerBuffer.readUInt8(HEADER_VERSION_OFFSET);
-  // Support both version 1 (legacy base64) and version 2+ (binary streaming)
   if (version > SCHEMA_FORMAT_VERSION) {
     throw new Error(`unsupported format version: ${version}; supported versions: 1-${SCHEMA_FORMAT_VERSION}`);
+  }
+  if (version < 2) {
+    throw new Error("legacy format versions (v1) are no longer supported");
   }
 
   const salt = headerBuffer.subarray(HEADER_SALT_OFFSET, HEADER_SALT_OFFSET + SALT_LENGTH);
   const nonce = headerBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
-  const tag = headerBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
+  
+  // Read bundle ID and createdAt from header
+  const bundleId = headerBuffer.subarray(HEADER_BUNDLE_ID_OFFSET, HEADER_BUNDLE_ID_OFFSET + BUNDLE_ID_LENGTH);
+  const createdAt = headerBuffer.readBigUInt64LE(HEADER_CREATED_AT_OFFSET);
+  
+  // Read ciphertext length from header
+  const ciphertextLength = Number(headerBuffer.readBigUInt64LE(HEADER_CIPHERTEXT_LENGTH_OFFSET));
 
-  let ciphertextSize;
-  let handoffReadSize = 0;
-
-  if (version >= 2) {
-    // Version 2+: manifest size is in header
-    ciphertextSize = headerBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
-    // For inspect, we only need manifest + up to 500 bytes of handoff for preview
-    // We'll read more if there's a handoff file to preview
-  } else {
-    // Version 1: legacy format - need to read whole file (but this is deprecated)
-    const stats = await stat(absolutePath);
-    ciphertextSize = stats.size - HEADER_TOTAL_LENGTH;
+  // === VERIFY EXACT CONTAINER SIZE ===
+  const fileStats = await stat(absolutePath);
+  const expectedTotalSize = HEADER_TOTAL_LENGTH + ciphertextLength + AUTH_TAG_LENGTH;
+  if (fileStats.size !== expectedTotalSize) {
+    throw new Error(`invalid encrypted bundle: file size mismatch (expected ${expectedTotalSize}, got ${fileStats.size})`);
   }
 
-  // === BOUNDED READ: Read only ciphertext needed for manifest + handoff preview ===
-  // Read from after header, limited to ciphertextSize bytes
-  // For inspect, we need:
-  // - 4 bytes for JSON length prefix
-  // - JSON content (up to what fits)
-  // - Handoff content for preview (up to 500 bytes)
-  const maxPreviewSize = 500;
-  let readSize = ciphertextSize;
-
-  // For version 2+, we can compute exactly how much we need
-  if (version >= 2) {
-    // We'll read the full ciphertext and decrypt, but we only keep manifest + preview
-    // The key insight: we need to decrypt ALL ciphertext to verify GCM auth tag
-    // But we can discard the file data after extracting manifest and handoff preview
-    readSize = ciphertextSize;
+  // === READ TAG (fixed position) ===
+  const tagOffset = HEADER_TOTAL_LENGTH + ciphertextLength;
+  const tagBuffer = Buffer.alloc(AUTH_TAG_LENGTH);
+  fileHandle = await open(absolutePath, "r");
+  try {
+    const tagReadResult = await fileHandle.read(tagBuffer, 0, AUTH_TAG_LENGTH, tagOffset);
+    if (tagReadResult.bytesRead < AUTH_TAG_LENGTH) {
+      throw new Error("invalid encrypted bundle: cannot read auth tag");
+    }
+  } finally {
+    await fileHandle.close();
   }
 
-  // Read only the ciphertext portion (not the entire file)
-  const ciphertext = await readFileRange(absolutePath, HEADER_TOTAL_LENGTH, HEADER_TOTAL_LENGTH + ciphertextSize);
+  // === STREAM DECRYPTION: Read only ciphertext range through decipher ===
+  // Read ciphertext using bounded read
+  const ciphertext = Buffer.alloc(ciphertextLength);
+  fileHandle = await open(absolutePath, "r");
+  try {
+    const ciphertextReadResult = await fileHandle.read(ciphertext, 0, ciphertextLength, HEADER_TOTAL_LENGTH);
+    if (ciphertextReadResult.bytesRead < ciphertextLength) {
+      throw new Error("invalid encrypted bundle: cannot read ciphertext");
+    }
+  } finally {
+    await fileHandle.close();
+  }
 
   const key = deriveKey(passphrase, salt);
 
   const decipher = createDecipheriv(ENCRYPTION_ALGORITHM, key, nonce);
-  // Set AAD for authenticated header/version
-  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([version])]);
-  decipher.setAAD(aadHeader);
-  decipher.setAuthTag(tag);
+  // Authenticate entire header as AAD
+  decipher.setAAD(headerBuffer);
+  decipher.setAuthTag(tagBuffer);
 
   let plaintext;
   try {
@@ -562,30 +686,27 @@ export async function inspectBundle(encryptedPath, passphrase) {
     throw new Error("decryption failed: wrong passphrase or corrupted data");
   }
 
-  // Parse length-prefixed manifest
+  // === PARSE BOUNDED LENGTH-PREFIXED MANIFEST INCREMENTALLY ===
+  if (plaintext.length < 4) {
+    throw new Error("invalid bundle: payload too short");
+  }
+  
+  const jsonLength = plaintext.readUInt32LE(0);
+  if (jsonLength > MAX_MANIFEST_SIZE) {
+    throw new Error(`invalid bundle: manifest too large (${jsonLength} bytes, max ${MAX_MANIFEST_SIZE})`);
+  }
+  
+  const jsonEnd = 4 + jsonLength;
+  if (jsonEnd > plaintext.length) {
+    throw new Error("invalid bundle: manifest length exceeds payload");
+  }
+  
   let payload;
   try {
-    if (version >= 2) {
-      // Read 4-byte length prefix to find where JSON ends
-      if (plaintext.length < 4) {
-        throw new Error("invalid bundle: payload too short");
-      }
-      const jsonLength = plaintext.readUInt32LE(0);
-      const jsonEnd = 4 + jsonLength;
-      if (jsonEnd > plaintext.length) {
-        throw new Error("invalid bundle: manifest length exceeds payload");
-      }
-      const jsonStr = plaintext.toString("utf8", 4, jsonEnd);
-      payload = JSON.parse(jsonStr);
-    } else {
-      // Version 1: legacy format without length prefix
-      payload = JSON.parse(plaintext.toString("utf8"));
-    }
+    const jsonStr = plaintext.toString("utf8", 4, jsonEnd);
+    payload = JSON.parse(jsonStr);
   } catch (e) {
-    if (e.message.includes("manifest length")) {
-      throw e;
-    }
-    throw new Error("invalid bundle: corrupted payload");
+    throw new Error("invalid bundle: corrupted manifest JSON");
   }
 
   if (payload.schema !== SCHEMA_VERSION) {
@@ -600,39 +721,24 @@ export async function inspectBundle(encryptedPath, passphrase) {
     throw new Error(`unsupported KDF: ${payload.kdf}`);
   }
 
-  // Return file info (not contents) - use offset/length for version 2+
-  // For new format (v2+), all data is in the decrypted payload
-  // Compute where file data starts in the plaintext
-  let fileDataOffset = 0;
+  // Compute file data offset: 4-byte length prefix + JSON (reuse jsonLength from parsing)
+  const fileDataOffset = 4 + jsonLength;
+
+  // Extract handoff content from binary section if present
   let handoffContent = null;
-  let jsonLength = 0;
-
-  if (version >= 2) {
-    // Get JSON length from the 4-byte prefix
-    jsonLength = plaintext.readUInt32LE(0);
-    // File data starts after: 4-byte length + JSON
-    fileDataOffset = 4 + jsonLength;
-
-    // Extract handoff content from binary section if present
-    const handoffFile = payload.files?.find(f => f.isHandoff);
-    if (handoffFile && handoffFile.offset >= 0) {
-      const actualOffset = fileDataOffset + handoffFile.offset;
-      const handoffEnd = actualOffset + handoffFile.length;
-      if (handoffEnd <= plaintext.length) {
-        handoffContent = plaintext.toString("utf8", actualOffset, handoffEnd);
-      }
+  const handoffFile = payload.files?.find(f => f.isHandoff);
+  if (handoffFile && handoffFile.offset >= 0) {
+    const actualOffset = fileDataOffset + handoffFile.offset;
+    const handoffEnd = actualOffset + handoffFile.length;
+    if (handoffEnd <= plaintext.length) {
+      handoffContent = plaintext.toString("utf8", actualOffset, handoffEnd);
     }
   }
 
   // For inspect, we only return bounded manifest + handoff preview
-  // Clear the large plaintext to free memory (we don't return it)
   const handoffPreview = handoffContent
     ? handoffContent.slice(0, 500) + (handoffContent.length > 500 ? "..." : "")
     : null;
-
-  // Clear plaintext to free memory - inspect doesn't need to return it
-  // (restoreBundle will re-read and decrypt itself)
-  // Note: We needed to decrypt fully to verify GCM tag, but we don't keep the full plaintext
 
   return {
     schema: payload.schema,
@@ -657,12 +763,21 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   const absoluteOutput = resolve(outputPath);
   const overwrite = options.overwrite === true;
 
-  // === BOUNDED READ: Read only header (fixed size) ===
-  const headerBuffer = await readFile(absoluteInput, { length: HEADER_TOTAL_LENGTH });
-
-  // Check minimum length for header format
-  if (headerBuffer.length < HEADER_TOTAL_LENGTH) {
-    throw new Error("invalid encrypted bundle: file too short");
+  // === BOUNDED READ: Use fs.promises.open().read() for fixed header ===
+  let fileHandle;
+  let headerBuffer;
+  try {
+    fileHandle = await open(absoluteInput, "r");
+    
+    // Read exactly HEADER_TOTAL_LENGTH bytes for the fixed header
+    headerBuffer = Buffer.alloc(HEADER_TOTAL_LENGTH);
+    const headerReadResult = await fileHandle.read(headerBuffer, 0, HEADER_TOTAL_LENGTH, 0);
+    
+    if (headerReadResult.bytesRead < HEADER_TOTAL_LENGTH) {
+      throw new Error("invalid encrypted bundle: file too short for header");
+    }
+  } finally {
+    if (fileHandle) await fileHandle.close();
   }
 
   // Verify magic header
@@ -672,35 +787,57 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   }
 
   const version = headerBuffer.readUInt8(HEADER_VERSION_OFFSET);
-  // Support both version 1 (legacy base64) and version 2+ (binary streaming)
   if (version > SCHEMA_FORMAT_VERSION) {
     throw new Error(`unsupported format version: ${version}; supported versions: 1-${SCHEMA_FORMAT_VERSION}`);
+  }
+  if (version < 2) {
+    throw new Error("legacy format versions (v1) are no longer supported");
   }
 
   const salt = headerBuffer.subarray(HEADER_SALT_OFFSET, HEADER_SALT_OFFSET + SALT_LENGTH);
   const nonce = headerBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
-  const tag = headerBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
+  
+  // Read ciphertext length from header
+  const ciphertextLength = Number(headerBuffer.readBigUInt64LE(HEADER_CIPHERTEXT_LENGTH_OFFSET));
 
-  let ciphertextSize;
-  if (version >= 2) {
-    // Version 2+: manifest size is in header
-    ciphertextSize = headerBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
-  } else {
-    // Version 1: legacy format - need to read whole file (but this is deprecated)
-    const stats = await stat(absoluteInput);
-    ciphertextSize = stats.size - HEADER_TOTAL_LENGTH;
+  // === VERIFY EXACT CONTAINER SIZE ===
+  const fileStats = await stat(absoluteInput);
+  const expectedTotalSize = HEADER_TOTAL_LENGTH + ciphertextLength + AUTH_TAG_LENGTH;
+  if (fileStats.size !== expectedTotalSize) {
+    throw new Error(`invalid encrypted bundle: file size mismatch (expected ${expectedTotalSize}, got ${fileStats.size})`);
   }
 
-  // === BOUNDED READ: Read only the ciphertext (not the entire file with attachments) ===
-  const ciphertext = await readFileRange(absoluteInput, HEADER_TOTAL_LENGTH, HEADER_TOTAL_LENGTH + ciphertextSize);
+  // === READ TAG (fixed position) ===
+  const tagOffset = HEADER_TOTAL_LENGTH + ciphertextLength;
+  const tagBuffer = Buffer.alloc(AUTH_TAG_LENGTH);
+  fileHandle = await open(absoluteInput, "r");
+  try {
+    const tagReadResult = await fileHandle.read(tagBuffer, 0, AUTH_TAG_LENGTH, tagOffset);
+    if (tagReadResult.bytesRead < AUTH_TAG_LENGTH) {
+      throw new Error("invalid encrypted bundle: cannot read auth tag");
+    }
+  } finally {
+    await fileHandle.close();
+  }
+
+  // === BOUNDED READ: Read only the ciphertext ===
+  const ciphertext = Buffer.alloc(ciphertextLength);
+  fileHandle = await open(absoluteInput, "r");
+  try {
+    const ciphertextReadResult = await fileHandle.read(ciphertext, 0, ciphertextLength, HEADER_TOTAL_LENGTH);
+    if (ciphertextReadResult.bytesRead < ciphertextLength) {
+      throw new Error("invalid encrypted bundle: cannot read ciphertext");
+    }
+  } finally {
+    await fileHandle.close();
+  }
 
   const key = deriveKey(passphrase, salt);
 
   const decipher = createDecipheriv(ENCRYPTION_ALGORITHM, key, nonce);
-  // Set AAD for authenticated header/version
-  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([version])]);
-  decipher.setAAD(aadHeader);
-  decipher.setAuthTag(tag);
+  // Authenticate entire header as AAD
+  decipher.setAAD(headerBuffer);
+  decipher.setAuthTag(tagBuffer);
 
   let plaintext;
   try {
@@ -712,27 +849,25 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   // Parse length-prefixed manifest
   let payload;
   try {
-    if (version >= 2) {
-      // Read 4-byte length prefix to find where JSON ends
-      if (plaintext.length < 4) {
-        throw new Error("invalid bundle: payload too short");
-      }
-      const jsonLength = plaintext.readUInt32LE(0);
-      const jsonEnd = 4 + jsonLength;
-      if (jsonEnd > plaintext.length) {
-        throw new Error("invalid bundle: manifest length exceeds payload");
-      }
-      const jsonStr = plaintext.toString("utf8", 4, jsonEnd);
-      payload = JSON.parse(jsonStr);
-    } else {
-      // Version 1: legacy format without length prefix
-      payload = JSON.parse(plaintext.toString("utf8"));
+    // Read 4-byte length prefix to find where JSON ends
+    if (plaintext.length < 4) {
+      throw new Error("invalid bundle: payload too short");
     }
+    const jsonLength = plaintext.readUInt32LE(0);
+    if (jsonLength > MAX_MANIFEST_SIZE) {
+      throw new Error(`invalid bundle: manifest too large (${jsonLength} bytes, max ${MAX_MANIFEST_SIZE})`);
+    }
+    const jsonEnd = 4 + jsonLength;
+    if (jsonEnd > plaintext.length) {
+      throw new Error("invalid bundle: manifest length exceeds payload");
+    }
+    const jsonStr = plaintext.toString("utf8", 4, jsonEnd);
+    payload = JSON.parse(jsonStr);
   } catch (e) {
-    if (e.message.includes("manifest length")) {
+    if (e.message.includes("manifest")) {
       throw e;
     }
-    throw new Error("invalid bundle: corrupted payload");
+    throw new Error("invalid bundle: corrupted manifest JSON");
   }
 
   if (payload.schema !== SCHEMA_VERSION) {
@@ -850,11 +985,12 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
         const offset = file.offset;
         const length = file.length || 0;
 
-        if (offset !== undefined && offset >= 0 && length > 0) {
+        if (offset !== undefined && offset >= 0) {
           // File data is in the plaintext after the manifest
           // Calculate actual offset: fileDataOffset + file.offset
           const actualOffset = fileDataOffset + offset;
-          if (actualOffset + length <= plaintext.length) {
+          // Handle zero-byte files (length === 0) - still need to check bounds
+          if (length === 0 || actualOffset + length <= plaintext.length) {
             content = plaintext.subarray(actualOffset, actualOffset + length);
           }
         }

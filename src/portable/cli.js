@@ -162,6 +162,9 @@ Examples:
 Note: Passphrase must be provided via stdin. For encrypt, send two lines (passphrase + confirmation).
 `;
 
+// Maximum passphrase size (1KB) - same as in encrypt.js
+const MAX_PASSPHRASE_SIZE = 1024;
+
 function getPassphraseFromStdin(lineCount = 1) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -170,19 +173,56 @@ function getPassphraseFromStdin(lineCount = 1) {
     stream.on("data", (chunk) => {
       chunks.push(chunk);
       bytesRead += chunk.length;
-      // Keep reading until we have enough newlines or EOF
+      // Bound check - reject if too much data
+      if (bytesRead > MAX_PASSPHRASE_SIZE * 2) { // Allow some overhead for multiple lines
+        reject(new Error("passphrase input too large"));
+        stream.destroy();
+      }
     });
     stream.on("end", () => {
       const input = Buffer.concat(chunks).toString("utf8");
-      const lines = input.trim().split("\n").filter((l) => l.length > 0);
-      if (lines.length < lineCount) {
-        reject(new Error(`expected ${lineCount} passphrase line(s) on stdin, got ${lines.length}`));
+      
+      // Parse both LF and CRLF - split by any line ending
+      // Do NOT trim passphrase characters - preserve leading/trailing spaces exactly
+      // Only remove line terminators (LF or CRLF)
+      const lines = input.split(/\r?\n/);
+      
+      // Filter out empty lines only at the end, but keep empty lines within
+      // Find the first non-empty line index and last non-empty line index
+      let firstNonEmpty = -1;
+      let lastNonEmpty = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i] !== undefined) {
+          if (firstNonEmpty === -1) firstNonEmpty = i;
+          lastNonEmpty = i;
+        }
+      }
+      
+      // Extract the relevant lines
+      const passphraseLines = [];
+      for (let i = firstNonEmpty; i <= lastNonEmpty && passphraseLines.length < lineCount; i++) {
+        if (lines[i] !== undefined) {
+          passphraseLines.push(lines[i]);
+        }
+      }
+      
+      if (passphraseLines.length < lineCount) {
+        reject(new Error(`expected ${lineCount} passphrase line(s) on stdin, got ${passphraseLines.length}`));
         return;
       }
+      
+      // For each line, check for empty passphrase
+      for (let i = 0; i < lineCount; i++) {
+        if (passphraseLines[i].length === 0) {
+          reject(new Error("passphrase cannot be empty"));
+          return;
+        }
+      }
+      
       if (lineCount === 1) {
-        resolve(lines[0]);
+        resolve(passphraseLines[0]);
       } else {
-        resolve({ passphrase: lines[0], confirmation: lines[1] });
+        resolve({ passphrase: passphraseLines[0], confirmation: passphraseLines[1] });
       }
     });
     stream.on("error", reject);
@@ -286,8 +326,20 @@ export async function runPortableCli(argv) {
   try {
     if (args.command === "encrypt") {
       const passphraseData = await getPassphrase(args, true);
+      
       // Handle both object (from stdin) and string (from TTY) cases
-      const passphrase = typeof passphraseData === "object" ? passphraseData.passphrase : passphraseData;
+      let passphrase;
+      if (typeof passphraseData === "object") {
+        // For stdin: check that passphrase and confirmation match
+        if (passphraseData.passphrase !== passphraseData.confirmation) {
+          throw new Error("passphrase and confirmation do not match");
+        }
+        passphrase = passphraseData.passphrase;
+      } else {
+        // For TTY prompt: already handled by promptPassphrase with confirm=true
+        passphrase = passphraseData;
+      }
+      
       const result = await encryptBundle(args.input, args.output, passphrase, {
         overwrite: args.overwrite,
       });
