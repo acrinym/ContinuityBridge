@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readFile, writeFile, stat, lstat, readdir, mkdir, rm, copyFile } from "node:fs/promises";
+import { readFile, writeFile, stat, lstat, readdir, mkdir, rm, copyFile, rename } from "node:fs/promises";
 import { dirname, join, relative, resolve, isAbsolute, sep } from "node:path";
 
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
@@ -12,6 +12,12 @@ const SCRYPT_PARAMS = {
   r: 8,
   p: 1,
 };
+
+// Split path into components, handling both Unix and Windows separators
+function splitPath(path) {
+  return path.split(/[/\\]/).filter(Boolean);
+}
+
 const SCHEMA_VERSION = "continuity-bridge/encrypted-bundle-v1";
 const SCHEMA_FORMAT_VERSION = 1;
 
@@ -475,24 +481,37 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     throw new Error(`preflight validation failed:\n  - ${preflightErrors.join("\n  - ")}`);
   }
 
-  // 4. Check for existing files (collision check)
+  // 4. Check for existing files and validate ALL path components (TOCTOU fix)
+  // We must check every ancestor component, not just the final target
   const existingFiles = [];
   for (const file of payload.files) {
     const targetPath = join(absoluteOutput, file.relativePath);
-    try {
-      const targetStat = await lstat(targetPath);
-      // Check if it's a symlink - reject
-      if (targetStat.isSymbolicLink()) {
-        throw new Error(`destination is a symlink: ${file.relativePath}`);
+    // Only split the relative part from absoluteOutput, not the full path
+    const relativePath = file.relativePath;
+    const pathParts = relativePath.split(/[/\\]/).filter(Boolean);
+
+    // Check every component of the path for symlinks
+    let checkPath = absoluteOutput;
+    for (let i = 0; i < pathParts.length; i++) {
+      checkPath = join(checkPath, pathParts[i]);
+      try {
+        const componentStat = await lstat(checkPath);
+        // Check if it's a symlink - reject
+        if (componentStat.isSymbolicLink()) {
+          throw new Error(`path component is a symlink: ${pathParts.slice(0, i + 1).join("/")}`);
+        }
+        // If this is the final component and it's a file
+        if (i === pathParts.length - 1 && componentStat.isFile()) {
+          if (!overwrite) {
+            existingFiles.push(file.relativePath);
+          }
+        }
+      } catch (err) {
+        if (err.code !== "ENOENT") {
+          throw err;
+        }
+        // ENOENT is fine - path component doesn't exist yet
       }
-      if (targetStat.isFile() && !overwrite) {
-        existingFiles.push(file.relativePath);
-      }
-    } catch (err) {
-      if (err.code !== "ENOENT") {
-        throw err;
-      }
-      // ENOENT is fine - file doesn't exist
     }
   }
 
@@ -501,66 +520,150 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   }
 
   // === STAGING AND WRITE ===
-  await mkdir(absoluteOutput, { recursive: true });
+  // Create a staging directory first, write there, then atomically move
+  const stagingDir = absoluteOutput + ".staging." + randomBytes(8).toString("hex");
 
-  const restored = [];
-  const restoreErrors = [];
-
-  for (const file of payload.files) {
-    let content = null;
-
-    // First check if we have stored content in the payload
-    if (payload.fileContents && payload.fileContents[file.relativePath]) {
-      content = Buffer.from(payload.fileContents[file.relativePath], "base64");
-    } else if (file.isHandoff && payload.handoff) {
-      content = Buffer.from(payload.handoff, "utf8");
-    }
-
-    if (!content) {
-      restoreErrors.push(`${file.relativePath}: source file not found in bundle`);
-      continue;
-    }
-
-    // Verify content hash BEFORE writing
-    const contentHash = createHash("sha256").update(content).digest("hex");
-    if (contentHash !== file.sha256) {
-      restoreErrors.push(`${file.relativePath}: hash mismatch (authenticated data corrupted)`);
-      continue;
-    }
-
-    const targetPath = join(absoluteOutput, file.relativePath);
-
-    // Check destination is not a symlink (could have changed since preflight)
+  try {
+    // First, validate restore root is not a symlink (if it exists)
     try {
-      const destStat = await lstat(targetPath);
-      if (destStat.isSymbolicLink()) {
-        restoreErrors.push(`${file.relativePath}: destination is a symlink, refusing to overwrite`);
-        continue;
+      const rootStat = await lstat(absoluteOutput);
+      if (rootStat.isSymbolicLink()) {
+        throw new Error("restore root is a symlink, refusing to restore");
       }
     } catch (err) {
       if (err.code !== "ENOENT") {
         throw err;
       }
+      // ENOENT is fine - restore root doesn't exist yet
     }
 
-    const targetDir = dirname(targetPath);
-    await mkdir(targetDir, { recursive: true });
+    // Create staging directory
+    await mkdir(stagingDir, { recursive: true });
 
-    await writeFile(targetPath, content);
+    const restored = [];
+    const restoreErrors = [];
 
-    restored.push({
-      relativePath: file.relativePath,
-      sha256: contentHash,
-    });
+    for (const file of payload.files) {
+      let content = null;
+
+      // First check if we have stored content in the payload
+      if (payload.fileContents && payload.fileContents[file.relativePath]) {
+        content = Buffer.from(payload.fileContents[file.relativePath], "base64");
+      } else if (file.isHandoff && payload.handoff) {
+        content = Buffer.from(payload.handoff, "utf8");
+      }
+
+      if (!content) {
+        restoreErrors.push(`${file.relativePath}: source file not found in bundle`);
+        continue;
+      }
+
+      // Verify content hash BEFORE writing
+      const contentHash = createHash("sha256").update(content).digest("hex");
+      if (contentHash !== file.sha256) {
+        restoreErrors.push(`${file.relativePath}: hash mismatch (authenticated data corrupted)`);
+        continue;
+      }
+
+      // === TOCTOU FIX: Re-validate path components before write ===
+      // Check every ancestor component again for symlinks before writing
+      const targetPath = join(absoluteOutput, file.relativePath);
+      // Only split the relative part from absoluteOutput, not the full path
+      const relativePath = file.relativePath;
+      const pathParts = relativePath.split(/[/\\]/).filter(Boolean);
+      let checkPath = absoluteOutput;
+      for (let i = 0; i < pathParts.length; i++) {
+        checkPath = join(checkPath, pathParts[i]);
+        try {
+          const componentStat = await lstat(checkPath);
+          if (componentStat.isSymbolicLink()) {
+            restoreErrors.push(`${file.relativePath}: path component became a symlink, aborting restore`);
+            continue;
+          }
+        } catch (err) {
+          if (err.code !== "ENOENT") {
+            throw err;
+          }
+        }
+      }
+
+      // Write to STAGING directory, not directly to target
+      const stagingPath = join(stagingDir, file.relativePath);
+      const stagingDirPath = dirname(stagingPath);
+      await mkdir(stagingDirPath, { recursive: true });
+      await writeFile(stagingPath, content);
+
+      restored.push({
+        relativePath: file.relativePath,
+        sha256: contentHash,
+        stagingPath,
+      });
+    }
+
+    // === ATOMIC MOVE: Move staging to final destination ===
+    // Only do this if no errors occurred
+    if (restoreErrors.length === 0) {
+      // Final check: verify output root still not a symlink (if it exists)
+      try {
+        const finalRootCheck = await lstat(absoluteOutput);
+        if (finalRootCheck.isSymbolicLink()) {
+          throw new Error("restore root became a symlink, aborting");
+        }
+      } catch (err) {
+        if (err.code !== "ENOENT") {
+          throw err;
+        }
+        // ENOENT is fine - restore root doesn't exist yet
+      }
+
+      // Move files from staging to final destination
+      for (const file of restored) {
+        const targetPath = join(absoluteOutput, file.relativePath);
+
+        // Verify target directory components still not symlinks
+        // Only split the relative part from absoluteOutput, not the full path
+        const relativePath = file.relativePath;
+        const pathParts = relativePath.split(/[/\\]/).filter(Boolean);
+        let checkPath = absoluteOutput;
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          checkPath = join(checkPath, pathParts[i]);
+          try {
+            const componentStat = await lstat(checkPath);
+            if (componentStat.isSymbolicLink()) {
+              throw new Error(`directory became a symlink during restore: ${pathParts.slice(0, i + 1).join("/")}`);
+            }
+          } catch (err) {
+            if (err.code !== "ENOENT") {
+              throw err;
+            }
+          }
+        }
+
+        // Atomic rename (fails if target exists on POSIX, but we handle overwrite above)
+        await mkdir(dirname(targetPath), { recursive: true });
+        await rename(file.stagingPath, targetPath);
+      }
+    }
+
+    // Clean up staging directory
+    await rm(stagingDir, { recursive: true, force: true });
+
+    return {
+      schema: payload.schema,
+      createdAt: payload.createdAt,
+      handoffName: payload.handoffName,
+      restoredCount: restored.length,
+      errors: restoreErrors,
+    };
+  } catch (stagingError) {
+    // Clean up staging directory on error
+    try {
+      await rm(stagingDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw stagingError;
   }
-
-  return {
-    schema: payload.schema,
-    createdAt: payload.createdAt,
-    handoffName: payload.handoffName,
-    restoredCount: restored.length,
-    errors: restoreErrors,
-  };
 }
 
 export { SCHEMA_VERSION };

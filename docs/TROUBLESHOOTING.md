@@ -1,99 +1,134 @@
-# Troubleshooting
+# Troubleshooting Guide
 
-Start with the **Home** readiness panel and **Check again**. It separates runtime, Lore, Git, and client status so one missing optional integration does not look like a total application failure.
+## Encrypted Portable Bundles
 
-## The app is blocked by Windows SmartScreen or macOS Gatekeeper
+### Common Issues
 
-ContinuityBridge 1.0 packages are not code-signed/notarized.
+#### "decryption failed: wrong passphrase or corrupted data"
 
-Download only from the official GitHub Release, verify `SHA256SUMS.txt` when integrity matters, and use your operating system's normal per-application review/allow path. Do not globally disable SmartScreen or Gatekeeper.
+**Cause**: The passphrase entered is incorrect or the bundle was corrupted.
 
-## Lore says it is not ready
+**Solutions**:
+- Verify you're using the correct passphrase
+- Check that the .cbx file wasn't modified after creation
+- Try re-encrypting the bundle with a new passphrase
 
-Packaged builds include Lore; they do not require a global npm install.
+#### "passphrase required via --passphrase-stdin or TTY prompt"
 
-Try **Initialize local memory** on Home. If initialization fails, copy the local error and include it in a bug report.
+**Cause**: The CLI can't prompt for a passphrase in non-interactive mode.
 
-Source installs are different: they must provide a compatible `lore` command or `CONTINUITYBRIDGE_LORE` override.
+**Solutions**:
+- Use `--passphrase-stdin` flag and provide passphrase via stdin
+- Run the command in an interactive terminal
+- For scripting, pipe the passphrase: `echo -e "passphrase\npassphrase" | continuity-bridge portable encrypt ...`
 
-## Capture says OFF
+#### "preflight validation failed: path escapes restore root"
 
-That is the normal safe default.
+**Cause**: The bundle contains a path that would write outside the target directory.
 
-Open Capture and explicitly press Start. The Workstation will show the active loopback port and fresh token.
+**Solutions**:
+- This should not happen with normally-created bundles
+- Check the bundle wasn't tampered with
+- Try restoring to a fresh directory
 
-## Browser capture cannot connect
+#### "existing files would be overwritten"
 
-Check that:
+**Cause**: The restore target already contains files with the same names.
 
-- Capture is ON in the Workstation;
-- the extension is using the current displayed port/token;
-- the receiver address is `127.0.0.1`;
-- the Workstation has not been closed/restarted since the token was copied.
+**Solutions**:
+- Use `--overwrite` flag to replace existing files
+- Restore to a different directory
+- Delete existing files in the target directory
 
-A new application run gets a fresh token.
+#### "restore root is a symlink, refusing to restore"
 
-## Browser capture refuses the page
+**Cause**: The restore target is a symbolic link.
 
-Refusal is intentional when the visible page does not match a supported ChatGPT/Claude message structure.
+**Solutions**:
+- Restore to a regular directory path
+- Remove the symlink and create a regular directory instead
 
-ContinuityBridge does not fall back to scraping arbitrary page text. Use an export or the public live-capture JSON contract if the provider UI has changed and support has not yet caught up.
+#### "path component is a symlink"
 
-For a tool that emits the [`continuity-bridge/live-capture-v1`](TRAIN-009.md#public-live-capture-contract) contract, inspect the file first and submit it to Lore only as a separate explicit step:
+**Cause**: One of the directories in the restore path is a symbolic link.
+
+**Solutions**:
+- Check that the restore directory doesn't contain symlinks
+- Restore to a different directory without symlinks
+
+### Testing Encrypted Bundles
+
+To verify an encrypted bundle works:
 
 ```bash
-continuity-bridge capture inspect capture.json
-continuity-bridge capture submit capture.json --to-lore
+# 1. Inspect the bundle
+continuity-bridge portable inspect encrypted.cbx --json
+
+# 2. Restore to a test directory
+continuity-bridge portable restore encrypted.cbx --output ./test-restore/
+
+# 3. Verify contents
+ls -la ./test-restore/
 ```
 
-Use `-` instead of `capture.json` to read from standard input. If `capture inspect` rejects the file, fix the producer or capture data rather than bypassing validation.
+### Bundle Size
 
-## An unchanged capture/import was skipped
+Encrypted bundles may be larger than unencrypted because:
+- Binary file contents are base64-encoded in the JSON payload
+- Each file includes its SHA-256 hash
+- The encryption adds overhead (salt, nonce, auth tag)
 
-That is expected incremental behavior. ContinuityBridge checkpoints confirmed destination writes and skips unchanged source evidence on later refreshes.
+## Import Issues
 
-## Git repository context is unavailable
+### "No conversations found"
 
-Git is optional for basic history, Recall, Capture, Connections, and non-repository handoffs.
+**Cause**: The export directory structure isn't recognized.
 
-Install Git only if you want repository-aware continuity coordinates or repository state in handoffs.
+**Solutions**:
+- Ensure you're pointing to the correct export directory
+- For ChatGPT: use the folder containing `conversations.json`
+- For Claude: use the folder containing `conversations.json`
 
-## A repository link points to the wrong project
+### "Attachment not found"
 
-If the same evidence has been linked to multiple repositories, select the intended repository filter before using Recall → Continue.
+**Cause**: An artifact referenced in a conversation isn't in the export.
 
-ContinuityBridge intentionally avoids choosing an arbitrary repository when the relationship is ambiguous.
+**Solutions**:
+- Re-export with all attachments
+- Use `--select` to explicitly choose available artifacts
 
-## An AI client is installed but not connected
+## Capture Issues
 
-Open Connections and inspect the preview.
+### "Connection refused"
 
-ContinuityBridge will not silently mutate the client's configuration. Apply the supported configuration explicitly, then reload/restart the client if its own integration requires it.
+**Cause**: The capture server isn't running or is on a different port.
 
-## My data disappeared after replacing the app
+**Solutions**:
+- Start the server: `continuity-bridge capture server --port 8765`
+- Verify the port matches your client configuration
+- Check for firewall blocking
 
-The application package is not the primary evidence store.
+### "Invalid token"
 
-Check:
+**Cause**: The capture submission uses the wrong token.
 
-- `~/.lore/` or your configured `LORE_DB`;
-- `~/.continuity-bridge/`;
-- the location where you saved handoff bundles.
+**Solutions**:
+- Ensure the token matches the server's configured token
+- Check for typos in the token
 
-If those directories are present, reinstall/replacement of the app should not itself remove the continuity data.
+## Desktop Application
 
-## Reporting a bug
+### "Lore not found"
 
-Open a GitHub issue and include:
+**Cause**: The bundled Lore runtime isn't available.
 
-- OS and version;
-- ContinuityBridge version;
-- what area you were using (History / Recall / Connections / Capture / Continue);
-- expected result;
-- actual result;
-- exact visible error text;
-- whether the packaged release or source install is in use.
+**Solutions**:
+- Download a complete release package
+- Ensure the application was properly installed
 
-**Do not post private conversation text, credentials, bearer tokens, private repository URLs, or confidential attachments unless you intentionally redact them first.**
+### Performance Issues
 
-Security-sensitive reports should follow [`../SECURITY.md`](../SECURITY.md).
+**Solutions**:
+- Close unnecessary conversations
+- Clear old workstation state
+- Use selective import instead of full imports

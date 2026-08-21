@@ -2,6 +2,104 @@ import { createReadStream, readFile, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { encryptBundle, inspectBundle, restoreBundle, SCHEMA_VERSION } from "./encrypt.js";
 
+// Cross-platform no-echo passphrase prompt
+// Uses keypress events on TTY to read without echoing to terminal
+function promptPassphrase(promptText, confirm = false) {
+  return new Promise((resolve, reject) => {
+    // If not a TTY, refuse to prompt (security requirement)
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      reject(new Error("passphrase required via --passphrase-stdin when not in interactive terminal"));
+      return;
+    }
+
+    process.stdout.write(promptText);
+
+    let passphrase = "";
+    let mode = "password";
+
+    // Set raw mode for TTY to capture keypresses without echo
+    const originalRawMode = process.stdin.isRaw;
+
+    // Use keypress to capture input without echo
+    const onKeypress = (s) => {
+      if (s === "\r" || s === "\n") {
+        // Enter pressed - finish
+        process.stdout.write("\n");
+        process.stdin.removeListener("keypress", onKeypress);
+        process.stdin.setRawMode(false);
+
+        if (!passphrase || passphrase.trim() === "") {
+          reject(new Error("passphrase cannot be empty"));
+          return;
+        }
+
+        if (confirm) {
+          process.stdout.write("Confirm passphrase: ");
+          let confirmPassphrase = "";
+
+          const onConfirmKeypress = (cs) => {
+            if (cs === "\r" || cs === "\n") {
+              process.stdout.write("\n");
+              process.stdin.removeListener("keypress", onConfirmKeypress);
+              process.stdin.setRawMode(false);
+
+              if (passphrase !== confirmPassphrase) {
+                reject(new Error("passphrases do not match"));
+                return;
+              }
+              resolve(passphrase);
+            } else if (cs === "\u0003") {
+              // Ctrl+C
+              process.stdin.removeListener("keypress", onConfirmKeypress);
+              process.stdin.setRawMode(false);
+              reject(new Error("cancelled"));
+            } else if (cs === "\u007f") {
+              // Backspace
+              if (confirmPassphrase.length > 0) {
+                confirmPassphrase = confirmPassphrase.slice(0, -1);
+                process.stdout.write("\b \b");
+              }
+            } else if (cs.length === 1) {
+              confirmPassphrase += cs;
+              process.stdout.write("*");
+            }
+          };
+
+          process.stdin.on("keypress", onConfirmKeypress);
+          process.stdin.setRawMode(true);
+        } else {
+          resolve(passphrase);
+        }
+      } else if (s === "\u0003") {
+        // Ctrl+C
+        process.stdin.removeListener("keypress", onKeypress);
+        process.stdin.setRawMode(false);
+        reject(new Error("cancelled"));
+      } else if (s === "\u007f") {
+        // Backspace
+        if (passphrase.length > 0) {
+          passphrase = passphrase.slice(0, -1);
+          process.stdout.write("\b \b");
+        }
+      } else if (s.length === 1 && mode === "password") {
+        // Regular character - capture but don't echo
+        passphrase += s;
+        process.stdout.write("*");
+      }
+    };
+
+    process.stdin.on("keypress", onKeypress);
+
+    // Enable raw mode to capture individual keypresses
+    try {
+      process.stdin.setRawMode(true);
+    } catch (e) {
+      process.stdin.removeListener("keypress", onKeypress);
+      reject(new Error("cannot enable raw mode for secure passphrase input"));
+    }
+  });
+}
+
 const USAGE = `continuity-bridge portable — encrypted portable continuity bundles
 
 Usage:
@@ -34,41 +132,6 @@ Examples:
 
 Note: Passphrase must be provided via stdin. For encrypt, send two lines (passphrase + confirmation).
 `;
-
-function promptPassphrase(promptText, confirm = false) {
-  return new Promise((resolve, reject) => {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    // Disable echo for passphrase input
-    rl.stdoutMuted = true;
-    rl.question(promptText, (passphrase) => {
-      rl.close();
-      if (!passphrase || passphrase.trim() === "") {
-        reject(new Error("passphrase cannot be empty"));
-        return;
-      }
-      if (confirm) {
-        const rl2 = createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        rl2.stdoutMuted = true;
-        rl2.question("Confirm passphrase: ", (confirmPassphrase) => {
-          rl2.close();
-          if (passphrase !== confirmPassphrase) {
-            reject(new Error("passphrases do not match"));
-            return;
-          }
-          resolve(passphrase);
-        });
-      } else {
-        resolve(passphrase);
-      }
-    });
-  });
-}
 
 function getPassphraseFromStdin(lineCount = 1) {
   return new Promise((resolve, reject) => {

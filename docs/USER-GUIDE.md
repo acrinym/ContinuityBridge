@@ -1,119 +1,116 @@
-# User guide
+# ContinuityBridge User Guide
 
-ContinuityBridge is organized around one journey:
+ContinuityBridge bridges AI conversation continuity across providers and sessions.
 
-**bring in evidence → recall exact source context → attach project coordinates → connect tools → build a bounded continuation package.**
+## Quick Start
 
-## Home
-
-Home shows readiness for:
-
-- ContinuityBridge runtime;
-- Lore library / MCP;
-- Git repository support;
-- supported AI clients.
-
-It also keeps convenience metadata for recent history sources and handoffs. Those lists are not another conversation database.
-
-## History
-
-History handles supported ChatGPT and Claude exports.
-
-Use **Analyze** before mutating the Lore destination. You can then import selected conversations or the full supported export.
-
-Repeated imports use destination-aware checkpoints. Unchanged conversations are skipped unless you explicitly request re-import behavior through the CLI.
-
-## Recall
-
-Recall searches Lore and works with source-backed evidence.
-
-A result includes real identifiers rather than invented references. You can inspect surrounding source context and carry selected evidence to Continue.
-
-### Repository-aware Recall
-
-You may explicitly link selected evidence to:
-
-- a Git repository;
-- optional issue references;
-- optional pull-request references.
-
-The link store contains lightweight coordinates pointing to Lore evidence. It does not copy the conversation into a second database.
-
-If one piece of evidence belongs to multiple repositories, choose the intended repository filter before continuing so ContinuityBridge does not guess.
-
-## Connections
-
-Connections detects supported installed clients and previews the exact Lore MCP configuration.
-
-1. choose the client;
-2. inspect the proposed configuration;
-3. explicitly confirm;
-4. reload/restart the client when its own behavior requires it.
-
-The packaged release points clients at the bundled `ContinuityBridgeLore` launcher.
-
-## Capture
-
-Capture is intentionally user-controlled.
-
-1. Open **Capture**.
-2. Start the local receiver.
-3. Note the displayed loopback port and fresh token.
-4. Load the bundled browser companion as described by the Workstation.
-5. On a supported ChatGPT or Claude page, click **Capture current conversation**.
-6. Stop capture when finished.
-
-The receiver binds only to `127.0.0.1`. There is no background LAN listener and the browser extension does not run a background transcript observer.
-
-Unsupported page structures are refused instead of being guessed.
-
-Local tools may also emit the public [`continuity-bridge/live-capture-v1`](TRAIN-009.md#public-live-capture-contract) JSON format. Inspect a capture before changing Lore, then submit it explicitly:
+### Importing Conversations
 
 ```bash
-continuity-bridge capture inspect capture.json
-continuity-bridge capture submit capture.json --to-lore
+# Import ChatGPT exports
+continuity-bridge import-chatgpt /path/to/chatgpt-export
+
+# Import Claude exports  
+continuity-bridge import-claude /path/to/claude-export
 ```
 
-Use `-` instead of `capture.json` to read the capture from standard input.
+### Creating Handoffs
 
-## Continue
+```bash
+# Create a handoff from a conversation
+continuity-bridge handoff --task "Explain the authentication system" --evidence
 
-Continue builds a portable evidence-backed continuation package.
+# With repository context
+continuity-bridge handoff --task "Fix the login bug" --repo owner/repo --issue 123
+```
 
-Possible ingredients:
+## Portable Bundles
 
-- the task to continue;
-- selected Lore evidence;
-- query-resolved exact Lore anchors;
-- current Git remote, branch, HEAD, and dirty state;
-- issue and pull-request coordinates;
-- explicitly selected local artifacts.
+ContinuityBridge supports creating portable bundles that include all necessary artifacts.
 
-**Preview does not copy artifacts.** Build is the mutation boundary.
+### Creating a Bundle
 
-When artifacts are included, ContinuityBridge copies only the selected local files, computes SHA-256 hashes, verifies the copies, and writes a portable manifest.
+```bash
+# Bundle artifacts from a ChatGPT export
+continuity-bridge attachments chatgpt /path/to/export --select "diagram.png" --output my-bundle/
+```
 
-## Updating ContinuityBridge
+### Encrypted Portable Bundles (.cbx)
 
-Close the app, replace the extracted application folder / `.app` with the newer release, and reopen it.
+For sensitive handoffs, you can create encrypted portable bundles:
 
-The packaged runtime is separate from your evidence/state directories, so replacing the application does not silently erase the Lore database or ContinuityBridge state.
+```bash
+# Encrypt a handoff file
+continuity-bridge portable encrypt ./my-handoff.md --output encrypted.cbx
 
-## Uninstalling
+# Encrypt a bundle directory
+continuity-bridge portable encrypt ./my-bundle/ --output encrypted.cbx
+```
 
-Delete the extracted application folder or `.app`.
+The encrypt command requires a passphrase, which must be provided via stdin (not as a command-line argument). You'll be prompted to enter and confirm the passphrase.
 
-That does not automatically delete:
+#### Inspecting an Encrypted Bundle
 
-- `~/.lore/` / configured `LORE_DB`;
-- `~/.continuity-bridge/`;
-- handoff bundles you saved elsewhere.
+View bundle contents without decrypting:
 
-Delete those separately only if you intentionally want to remove the data.
+```bash
+continuity-bridge portable inspect encrypted.cbx
+# Or with JSON output:
+continuity-bridge portable inspect encrypted.cbx --json
+```
 
-## More
+#### Restoring an Encrypted Bundle
 
-- [Getting started](GETTING-STARTED.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
-- [Privacy](PRIVACY.md)
-- [Workstation internals / behavior](WORKSTATION.md)
+Decrypt and extract to a directory:
+
+```bash
+continuity-bridge portable restore encrypted.cbx --output ./restored/
+```
+
+Use `--overwrite` to replace existing files:
+
+```bash
+continuity-bridge portable restore encrypted.cbx --output ./restored/ --overwrite
+```
+
+## Capture Mode
+
+Real-time conversation capture:
+
+```bash
+# Start capture server
+continuity-bridge capture server --port 8765 --token your-secret-token
+
+# Submit a capture
+continuity-bridge capture submit --source chatgpt --conversation-id abc123 --messages-file messages.json
+```
+
+## Desktop Application
+
+The ContinuityBridge desktop application provides a GUI for all operations. Download from the releases page for your platform.
+
+### Handoff Builder
+
+Create and manage handoffs with the visual builder:
+
+1. Select a conversation source
+2. Choose artifacts to include
+3. Add task context
+4. Generate handoff
+
+### Portable Operations
+
+The desktop app also supports encrypted bundle operations:
+
+- **Encrypt**: Create encrypted .cbx bundles
+- **Inspect**: Preview bundle contents
+- **Restore**: Decrypt and extract bundles
+
+## Security Considerations
+
+- Passphrases are never passed via command-line arguments
+- Encrypted bundles use AES-256-GCM with scrypt key derivation
+- All artifacts are SHA-256 verified during bundle and restore operations
+- No passphrase recovery is possible—lost passphrases cannot be recovered
+
+See [SECURITY.md](../SECURITY.md) for full security details.

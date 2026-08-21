@@ -373,6 +373,62 @@ test("CLI encrypt with stdin passphrase", async () => {
   }
 });
 
+test("CLI refuses interactive TTY prompt when not in TTY (no secret echo)", async () => {
+  const dir = await tempDir();
+  try {
+    const handoffPath = join(dir, "test.md");
+    const encryptedPath = join(dir, "test.cbx");
+
+    await writeFile(handoffPath, "test content", "utf8");
+
+    // Try to run encrypt without --passphrase-stdin when not in TTY
+    // Should fail because it can't prompt securely without TTY
+    const result = spawnSync(
+      "node",
+      ["bin/continuity-bridge.js", "portable", "encrypt", handoffPath, "--output", encryptedPath],
+      { cwd: resolve("."), encoding: "utf8" },
+    );
+
+    // Should fail with error about requiring --passphrase-stdin or TTY
+    assert.notEqual(result.status, 0);
+    assert.ok(
+      result.stderr.includes("--passphrase-stdin") || result.stderr.includes("TTY") || result.stderr.includes("passphrase required"),
+      "should require --passphrase-stdin when not in TTY",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("passphrase via stdin does not appear in process output", async () => {
+  const dir = await tempDir();
+  try {
+    const handoffPath = join(dir, "test.md");
+    const encryptedPath = join(dir, "test.cbx");
+    const secretPassphrase = "super-secret-12345";
+
+    await writeFile(handoffPath, "test content", "utf8");
+
+    // Encrypt with passphrase via stdin
+    const encryptResult = spawnSync(
+      "node",
+      ["bin/continuity-bridge.js", "portable", "encrypt", handoffPath, "--output", encryptedPath, "--passphrase-stdin"],
+      { cwd: resolve("."), encoding: "utf8", input: `${secretPassphrase}\n${secretPassphrase}\n` },
+    );
+
+    assert.equal(encryptResult.status, 0, encryptResult.stderr);
+
+    // Verify passphrase does not appear in stdout or stderr
+    const combinedOutput = (encryptResult.stdout || "") + (encryptResult.stderr || "");
+    assert.ok(
+      !combinedOutput.includes(secretPassphrase),
+      "passphrase should not appear in any output",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI restore with stdin passphrase", async () => {
   const dir = await tempDir();
   try {
@@ -394,6 +450,87 @@ test("CLI restore with stdin passphrase", async () => {
 
     const restoredContent = await readFile(join(restoredDir, "test.md"), "utf8");
     assert.equal(restoredContent, "test content");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("restore refuses when restore root is a symlink", async () => {
+  const dir = await tempDir();
+  try {
+    const handoffPath = join(dir, "test.md");
+    const encryptedPath = join(dir, "test.cbx");
+    const restoredDir = join(dir, "restored");
+    const targetDir = join(dir, "target");
+
+    // Create encrypted bundle
+    await writeFile(handoffPath, "secret content", "utf8");
+    await encryptBundle(handoffPath, encryptedPath, "test-pass");
+
+    // Create target directory
+    await mkdir(targetDir, { recursive: true });
+
+    // Create restore directory as a symlink to target
+    await symlink(targetDir, restoredDir);
+
+    // Try to restore - should fail because restore root is a symlink
+    await assert.rejects(
+      restoreBundle(encryptedPath, restoredDir, "test-pass", { overwrite: true }),
+      /symlink/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("restore with pre-existing file refuses when not overwrite", async () => {
+  const dir = await tempDir();
+  try {
+    const handoffPath = join(dir, "test.md");
+    const encryptedPath = join(dir, "test.cbx");
+    const restoredDir = join(dir, "restored");
+
+    // Create encrypted bundle
+    await writeFile(handoffPath, "new content", "utf8");
+    await encryptBundle(handoffPath, encryptedPath, "test-pass");
+
+    // Create restore directory with existing file
+    await mkdir(restoredDir, { recursive: true });
+    await writeFile(join(restoredDir, "test.md"), "existing content", "utf8");
+
+    // Should refuse without overwrite flag
+    await assert.rejects(
+      restoreBundle(encryptedPath, restoredDir, "test-pass"),
+      /existing files would be overwritten/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("restore with staging directory is atomic", async () => {
+  const dir = await tempDir();
+  try {
+    const handoffPath = join(dir, "test.md");
+    const encryptedPath = join(dir, "test.cbx");
+    const restoredDir = join(dir, "restored");
+
+    await writeFile(handoffPath, "atomic restore test", "utf8");
+    await encryptBundle(handoffPath, encryptedPath, "test-pass");
+
+    // Restore should succeed
+    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
+    assert.equal(restoreResult.restoredCount, 1);
+    assert.equal(restoreResult.errors.length, 0);
+
+    // Verify staging directory is cleaned up
+    const stagingDirs = await readdir(dir);
+    for (const item of stagingDirs) {
+      assert.ok(!item.includes("staging"), "staging directory should be cleaned up");
+    }
+
+    const restoredContent = await readFile(join(restoredDir, "test.md"), "utf8");
+    assert.equal(restoredContent, "atomic restore test");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
