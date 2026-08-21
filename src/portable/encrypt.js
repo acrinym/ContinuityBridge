@@ -2,6 +2,8 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash }
 import { createReadStream, createWriteStream } from "node:fs";
 import { readFile, writeFile, stat, lstat, readdir, mkdir, rm, copyFile, rename } from "node:fs/promises";
 import { dirname, join, relative, resolve, isAbsolute, sep } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
 const SALT_LENGTH = 32;
@@ -36,15 +38,55 @@ const HEADER_TOTAL_LENGTH = HEADER_MANIFEST_SIZE_OFFSET + 4; // 4 bytes for mani
 const SUPPORTED_ALGORITHMS = ["aes-256-gcm"];
 const SUPPORTED_KDFS = ["scrypt"];
 
-function safeFileName(name) {
-  const cleaned = String(name ?? "file")
-    .normalize("NFKC")
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^\.+/, "")
-    .slice(0, 140);
-  return cleaned || "file";
+// Recursively scan directory for all files, building manifest with hashes and sizes
+// This is bounded-memory: only stores metadata, not file contents
+async function scanDirectoryRecursive(basePath, relativePath = "") {
+  const files = [];
+  const entries = await readdir(basePath, { withFileTypes: true });
+  
+  for (const entry of entries) {
+    const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+    const entryAbsPath = join(basePath, entry.name);
+    
+    // Use lstat to detect symlinks
+    let entryStat;
+    try {
+      entryStat = await lstat(entryAbsPath);
+    } catch {
+      continue; // Skip inaccessible entries
+    }
+    
+    // Reject symlinks - must throw error, not skip silently
+    if (entryStat.isSymbolicLink()) {
+      throw new Error(`source contains symbolic link: ${entryRelPath}; symlinks are not allowed in encrypted bundles`);
+    }
+    
+    // Handle directories recursively (not just attachments/)
+    if (entry.isDirectory()) {
+      const subFiles = await scanDirectoryRecursive(entryAbsPath, entryRelPath);
+      files.push(...subFiles);
+    } else if (entry.isFile()) {
+      // For files, compute hash and size using streaming (bounded memory)
+      const hash = createHash("sha256");
+      let size = 0;
+      
+      const stream = createReadStream(entryAbsPath);
+      for await (const chunk of stream) {
+        hash.update(chunk);
+        size += chunk.length;
+      }
+      
+      files.push({
+        relativePath: entryRelPath,
+        sha256: hash.digest("hex"),
+        size,
+        isHandoff: entry.name.startsWith("HANDOFF."),
+      });
+    }
+    // Skip other types (devices, sockets, etc.)
+  }
+  
+  return files;
 }
 
 // Validate a path for restore - reject absolute, traversal, special chars, etc.
@@ -134,6 +176,45 @@ function deriveKey(passphrase, salt) {
   return scryptSync(passphrase, salt, KEY_LENGTH, SCRYPT_PARAMS);
 }
 
+// Recursive helper to read file contents and build combined binary payload
+// ALL file content goes in the binary section - NOT in the JSON manifest
+// This ensures JSON parsing works correctly after decryption
+async function createFilePayloadStream(basePath, files, handoffContent) {
+  const chunks = [];
+  const fileOrder = [];
+  let currentOffset = 0;
+  
+  const filesWithOffsets = [];
+  
+  for (const file of files) {
+    let content;
+    
+    if (file.isHandoff && handoffContent) {
+      // Handoff content goes in binary section too (not in JSON)
+      content = Buffer.from(handoffContent, "utf8");
+    } else {
+      // Read file content
+      const filePath = join(basePath, file.relativePath);
+      content = await readFile(filePath);
+    }
+    
+    const offset = currentOffset;
+    chunks.push(content);
+    currentOffset += content.length;
+    
+    filesWithOffsets.push({
+      relativePath: file.relativePath,
+      sha256: file.sha256,
+      isHandoff: file.isHandoff,
+      offset: offset,
+      length: content.length,
+    });
+    fileOrder.push(file.relativePath);
+  }
+  
+  return { chunks, filesWithOffsets, fileOrder };
+}
+
 export async function encryptBundle(inputPath, outputPath, passphrase, options = {}) {
   const absoluteInput = resolve(inputPath);
   const absoluteOutput = resolve(outputPath);
@@ -155,97 +236,27 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
   const inputStat = await stat(absoluteInput);
   const isDirectory = inputStat.isDirectory();
 
-  const salt = randomBytes(SALT_LENGTH);
-  const nonce = randomBytes(NONCE_LENGTH);
-  const key = deriveKey(passphrase, salt);
-
-  // Use AAD for authenticated header/version
-  const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, nonce);
-  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([SCHEMA_FORMAT_VERSION])]);
-  cipher.setAAD(aadHeader);
-
-  const files = [];
+  // Pre-scan all files recursively to build manifest (bounded memory - only metadata)
+  let scannedFiles = [];
   let handoffContent = null;
   let handoffName = null;
-  // Store raw binary content, not base64
-  const fileContents = {};
-
+  
   if (isDirectory) {
-    const entries = await readdir(absoluteInput, { withFileTypes: true });
-    for (const entry of entries) {
-      const entryPath = join(absoluteInput, entry.name);
-
-      // Use lstat to detect symlinks
-      let entryStat;
-      try {
-        entryStat = await lstat(entryPath);
-      } catch {
-        continue;
-      }
-
-      // Reject symlinks in source
-      if (entryStat.isSymbolicLink()) {
-        continue; // Skip symlinks
-      }
-
-      // Handle attachments directory specially
-      if (entry.name === "attachments" && entry.isDirectory()) {
-        const attachmentEntries = await readdir(join(absoluteInput, "attachments"), { withFileTypes: true });
-        for (const attFile of attachmentEntries) {
-          const attPath = join(absoluteInput, "attachments", attFile.name);
-          let attStat;
-          try {
-            attStat = await lstat(attPath);
-          } catch {
-            continue;
-          }
-
-          if (attStat.isSymbolicLink() || !attStat.isFile()) {
-            continue; // Skip symlinks and non-regular files
-          }
-
-          const content = await readFile(attPath);
-          // Compute hash from content to detect source mutation
-          const contentHash = createHash("sha256").update(content).digest("hex");
-          // Store raw binary (will be converted to JSON-safe format later)
-          fileContents[`attachments/${attFile.name}`] = content;
-          files.push({
-            relativePath: `attachments/${attFile.name}`,
-            sha256: contentHash,
-          });
-        }
-      }
-
-      // Only process regular files
-      if (!entry.isFile()) {
-        continue;
-      }
-
-      if (entry.name.startsWith("HANDOFF.") && entry.isFile()) {
-        const handoffPath = join(absoluteInput, entry.name);
-        handoffContent = await readFile(handoffPath, "utf8");
-        handoffName = entry.name;
-        // Compute hash from content to detect source mutation
-        const contentHash = createHash("sha256").update(handoffContent).digest("hex");
-        files.push({
-          relativePath: entry.name,
-          sha256: contentHash,
-          isHandoff: true,
-        });
-      } else if (entry.isFile()) {
-        const filePath = join(absoluteInput, entry.name);
-        const content = await readFile(filePath);
-        // Compute hash from content to detect source mutation
-        const contentHash = createHash("sha256").update(content).digest("hex");
-        fileContents[entry.name] = content;
-        files.push({
-          relativePath: entry.name,
-          sha256: contentHash,
-        });
-      }
+    // Recursively scan all files - throws on symlinks
+    scannedFiles = await scanDirectoryRecursive(absoluteInput);
+    
+    // Separate handoff files
+    const handoffFiles = scannedFiles.filter(f => f.isHandoff);
+    const attachmentFiles = scannedFiles.filter(f => !f.isHandoff);
+    
+    // Get handoff content
+    if (handoffFiles.length > 0) {
+      const handoffFile = handoffFiles[0];
+      handoffName = handoffFile.relativePath;
+      handoffContent = await readFile(join(absoluteInput, handoffName), "utf8");
     }
   } else {
-    // Single file - use lstat to check for symlink
+    // Single file - check for symlink and reject
     let inputStatCheck;
     try {
       inputStatCheck = await lstat(absoluteInput);
@@ -259,68 +270,78 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
 
     handoffContent = await readFile(absoluteInput, "utf8");
     handoffName = relative(dirname(absoluteInput), absoluteInput);
-    // Compute hash from content to detect source mutation
-    const contentHash = createHash("sha256").update(handoffContent).digest("hex");
-    files.push({
+    // Compute hash using streaming (bounded memory)
+    const hash = createHash("sha256");
+    const stream = createReadStream(absoluteInput);
+    for await (const chunk of stream) {
+      hash.update(chunk);
+    }
+    const contentHash = hash.digest("hex");
+    
+    scannedFiles = [{
       relativePath: handoffName,
       sha256: contentHash,
       isHandoff: true,
-    });
+      size: Buffer.byteLength(handoffContent, "utf8"),
+    }];
   }
 
-  // Build binary payload format: manifest + raw file contents
-  // This avoids base64 JSON amplification (version 2+)
-  
-  // Calculate offsets and build manifest
-  let currentOffset = 0;
-  const fileOrder = []; // Order of files in binary section
-  
-  // Build files array with offsets
-  // For handoff files: stored in manifest JSON (offset/length = -1 to indicate manifest)
-  // For attachment files: stored in binary section
-  const filesWithOffsets = [];
-  for (const file of files) {
-    let offset, length;
-    if (file.isHandoff) {
-      // Handoff is stored in manifest JSON, not binary section
-      offset = -1;
-      length = handoffContent ? handoffContent.length : 0;
-    } else {
-      const content = fileContents[file.relativePath];
-      offset = currentOffset;
-      length = content ? content.length : 0;
-      currentOffset += length;
-    }
-    filesWithOffsets.push({
-      relativePath: file.relativePath,
-      sha256: file.sha256,
-      isHandoff: file.isHandoff || false,
-      offset: offset,
-      length: length,
-    });
-    fileOrder.push(file.relativePath);
+  if (scannedFiles.length === 0) {
+    throw new Error("no files to encrypt in input");
   }
+
+  // Create encryption key
+  const salt = randomBytes(SALT_LENGTH);
+  const nonce = randomBytes(NONCE_LENGTH);
+  const key = deriveKey(passphrase, salt);
+
+  // Use AAD for authenticated header/version
+  const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, nonce);
+  const aadHeader = Buffer.concat([MAGIC_HEADER, Buffer.from([SCHEMA_FORMAT_VERSION])]);
+  cipher.setAAD(aadHeader);
+
+  // Build manifest JSON
+  // We need to pre-calculate offsets, so read file contents into chunks
+  const { chunks, filesWithOffsets, fileOrder } = await createFilePayloadStream(
+    absoluteInput, 
+    scannedFiles, 
+    handoffContent
+  );
 
   // Build manifest JSON (no file contents - just metadata + offsets)
+  // Note: handoff content is in the binary section, not in JSON
+  // This ensures JSON is always valid and separable from binary data
   const payload = {
     schema: SCHEMA_VERSION,
     formatVersion: SCHEMA_FORMAT_VERSION,
     algorithm: ENCRYPTION_ALGORITHM,
     kdf: "scrypt",
     createdAt: new Date().toISOString(),
-    handoff: handoffContent,
     handoffName,
     files: filesWithOffsets,
     fileOrder: fileOrder,
   };
 
   const payloadJson = JSON.stringify(payload);
-  const payloadBuffer = Buffer.from(payloadJson, "utf8");
+  const payloadJsonBuffer = Buffer.from(payloadJson, "utf8");
+  
+  // Create length-prefixed manifest: 4-byte length + JSON
+  // This allows the decryptor to find where JSON ends
+  const manifestLengthBuffer = Buffer.alloc(4);
+  manifestLengthBuffer.writeUInt32LE(payloadJsonBuffer.length, 0);
+  const manifestBuffer = Buffer.concat([manifestLengthBuffer, payloadJsonBuffer]);
 
-  const encrypted = Buffer.concat([cipher.update(payloadBuffer), cipher.final()]);
+  // Create combined plaintext: manifest + all file contents
+  // This ensures ALL bytes are encrypted together
+  const fileDataBuffer = Buffer.concat(chunks);
+  const combinedPlaintext = Buffer.concat([manifestBuffer, fileDataBuffer]);
+
+  // Encrypt ALL the data together (manifest + file bytes)
+  const encrypted = Buffer.concat([cipher.update(combinedPlaintext), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
   // Write header: MAGIC (3) + version (1) + salt (32) + nonce (12) + tag (16) + manifestSize (4)
+  // Note: manifestSize is now the size of the encrypted payload (which contains manifest + file data)
   const header = Buffer.alloc(HEADER_TOTAL_LENGTH);
   MAGIC_HEADER.copy(header, 0);
   header.writeUInt8(SCHEMA_FORMAT_VERSION, HEADER_VERSION_OFFSET);
@@ -329,16 +350,11 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
   authTag.copy(header, HEADER_TAG_OFFSET);
   header.writeUInt32LE(encrypted.length, HEADER_MANIFEST_SIZE_OFFSET);
 
-  // Concatenate all file contents in order
-  const binarySection = Buffer.concat(
-    fileOrder.map((path) => fileContents[path] || Buffer.alloc(0))
-  );
-
-  // Write: header + encrypted manifest + raw binary file data
+  // Write: header + encrypted (manifest + all file bytes)
+  // This ensures ALL payload bytes are encrypted and authenticated
   const output = createWriteStream(absoluteOutput);
   output.write(header);
   output.write(encrypted);
-  output.write(binarySection);
   await new Promise((resolve, reject) => {
     output.on("error", reject);
     output.on("finish", resolve);
@@ -348,7 +364,7 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
   return {
     schema: SCHEMA_VERSION,
     outputPath: absoluteOutput,
-    fileCount: files.length,
+    fileCount: scannedFiles.length,
     handoffName,
   };
 }
@@ -379,19 +395,16 @@ export async function inspectBundle(encryptedPath, passphrase) {
   const nonce = fileBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
   const tag = fileBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
   
-  let ciphertext, binarySection, manifestSize;
+  let ciphertext;
   
   if (version >= 2) {
-    // Version 2+: Read manifest size from header, then extract ciphertext and binary section
-    manifestSize = fileBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
+    // Version 2+: All data (manifest + file bytes) is in the encrypted payload
+    const manifestSize = fileBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
     const ciphertextEnd = HEADER_TOTAL_LENGTH + manifestSize;
     ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH, ciphertextEnd);
-    binarySection = fileBuffer.subarray(ciphertextEnd);
   } else {
-    // Version 1: all ciphertext, no binary section
+    // Version 1: all ciphertext (legacy base64 format)
     ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
-    binarySection = Buffer.alloc(0);
-    manifestSize = ciphertext.length;
   }
 
   const key = deriveKey(passphrase, salt);
@@ -409,10 +422,29 @@ export async function inspectBundle(encryptedPath, passphrase) {
     throw new Error("decryption failed: wrong passphrase or corrupted data");
   }
 
+  // Parse length-prefixed manifest
   let payload;
   try {
-    payload = JSON.parse(plaintext.toString("utf8"));
-  } catch {
+    if (version >= 2) {
+      // Read 4-byte length prefix to find where JSON ends
+      if (plaintext.length < 4) {
+        throw new Error("invalid bundle: payload too short");
+      }
+      const jsonLength = plaintext.readUInt32LE(0);
+      const jsonEnd = 4 + jsonLength;
+      if (jsonEnd > plaintext.length) {
+        throw new Error("invalid bundle: manifest length exceeds payload");
+      }
+      const jsonStr = plaintext.toString("utf8", 4, jsonEnd);
+      payload = JSON.parse(jsonStr);
+    } else {
+      // Version 1: legacy format without length prefix
+      payload = JSON.parse(plaintext.toString("utf8"));
+    }
+  } catch (e) {
+    if (e.message.includes("manifest length")) {
+      throw e;
+    }
     throw new Error("invalid bundle: corrupted payload");
   }
 
@@ -429,13 +461,36 @@ export async function inspectBundle(encryptedPath, passphrase) {
   }
 
   // Return file info (not contents) - use offset/length for version 2+
+  // For new format (v2+), all data is in the decrypted payload
+  // Compute where file data starts in the plaintext
+  let fileDataOffset = 0;
+  let handoffContent = null;
+  let jsonLength = 0;
+  
+  if (version >= 2) {
+    // Get JSON length from the 4-byte prefix
+    jsonLength = plaintext.readUInt32LE(0);
+    // File data starts after: 4-byte length + JSON
+    fileDataOffset = 4 + jsonLength;
+    
+    // Extract handoff content from binary section if present
+    const handoffFile = payload.files?.find(f => f.isHandoff);
+    if (handoffFile && handoffFile.offset >= 0) {
+      const actualOffset = fileDataOffset + handoffFile.offset;
+      const handoffEnd = actualOffset + handoffFile.length;
+      if (handoffEnd <= plaintext.length) {
+        handoffContent = plaintext.toString("utf8", actualOffset, handoffEnd);
+      }
+    }
+  }
+  
   return {
     schema: payload.schema,
     formatVersion: version,
     createdAt: payload.createdAt,
     handoffName: payload.handoffName,
-    handoffPreview: payload.handoff
-      ? payload.handoff.slice(0, 500) + (payload.handoff.length > 500 ? "..." : "")
+    handoffPreview: handoffContent
+      ? handoffContent.slice(0, 500) + (handoffContent.length > 500 ? "..." : "")
       : null,
     files: payload.files.map((f) => ({
       relativePath: f.relativePath,
@@ -446,7 +501,8 @@ export async function inspectBundle(encryptedPath, passphrase) {
       length: f.length,
     })),
     fileCount: payload.files.length,
-    _binarySection: binarySection, // Internal: for restoreBundle
+    _plaintext: plaintext, // Internal: for restoreBundle - contains both manifest and file data
+    _fileDataOffset: fileDataOffset, // Offset where file data starts in plaintext
   };
 }
 
@@ -478,18 +534,16 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   const nonce = fileBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
   const tag = fileBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
   
-  let ciphertext, binarySection;
+  let ciphertext;
   
   if (version >= 2) {
-    // Version 2+: Read manifest size from header, then extract ciphertext and binary section
+    // Version 2+: All data (manifest + file bytes) is in the encrypted payload
     const manifestSize = fileBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
     const ciphertextEnd = HEADER_TOTAL_LENGTH + manifestSize;
     ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH, ciphertextEnd);
-    binarySection = fileBuffer.subarray(ciphertextEnd);
   } else {
-    // Version 1: all ciphertext, no binary section
+    // Version 1: all ciphertext (legacy base64 format)
     ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
-    binarySection = Buffer.alloc(0);
   }
 
   const key = deriveKey(passphrase, salt);
@@ -507,10 +561,29 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     throw new Error("decryption failed: wrong passphrase or tampered data");
   }
 
+  // Parse length-prefixed manifest
   let payload;
   try {
-    payload = JSON.parse(plaintext.toString("utf8"));
-  } catch {
+    if (version >= 2) {
+      // Read 4-byte length prefix to find where JSON ends
+      if (plaintext.length < 4) {
+        throw new Error("invalid bundle: payload too short");
+      }
+      const jsonLength = plaintext.readUInt32LE(0);
+      const jsonEnd = 4 + jsonLength;
+      if (jsonEnd > plaintext.length) {
+        throw new Error("invalid bundle: manifest length exceeds payload");
+      }
+      const jsonStr = plaintext.toString("utf8", 4, jsonEnd);
+      payload = JSON.parse(jsonStr);
+    } else {
+      // Version 1: legacy format without length prefix
+      payload = JSON.parse(plaintext.toString("utf8"));
+    }
+  } catch (e) {
+    if (e.message.includes("manifest length")) {
+      throw e;
+    }
     throw new Error("invalid bundle: corrupted payload");
   }
 
@@ -525,6 +598,11 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   if (payload.kdf && !SUPPORTED_KDFS.includes(payload.kdf)) {
     throw new Error(`unsupported KDF: ${payload.kdf}`);
   }
+
+  // Calculate total file data size for version 2+ to locate file data in plaintext
+  const totalFileDataSize = version >= 2
+    ? (payload.files || []).filter(f => f.offset >= 0).reduce((sum, f) => sum + (f.length || 0), 0)
+    : 0;
 
   // === PREFLIGHT VALIDATION ===
   const preflightErrors = [];
@@ -617,25 +695,31 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     const restored = [];
     const restoreErrors = [];
 
+    // Calculate fileDataOffset for version 2+
+    const fileDataOffset = version >= 2 ? (4 + plaintext.readUInt32LE(0)) : 0;
+    
     for (const file of payload.files) {
       let content = null;
 
-      // Version 2+: Read from binary section using offset/length
-      // offset = -1 means content is stored in manifest (for handoff files)
-      if (version >= 2 && binarySection) {
+      // Version 2+: Read from decrypted plaintext using offset/length
+      // All files (including handoff) are stored in the binary section
+      if (version >= 2 && plaintext) {
         const offset = file.offset;
         const length = file.length || 0;
-        if (offset !== undefined && offset >= 0 && length > 0 && binarySection.length >= offset + length) {
-          // Read from binary section
-          content = binarySection.subarray(offset, offset + length);
-        } else if (file.isHandoff && payload.handoff) {
-          // Handoff is stored as UTF-8 in the manifest
-          content = Buffer.from(payload.handoff, "utf8");
+        
+        if (offset !== undefined && offset >= 0 && length > 0) {
+          // File data is in the plaintext after the manifest
+          // Calculate actual offset: fileDataOffset + file.offset
+          const actualOffset = fileDataOffset + offset;
+          if (actualOffset + length <= plaintext.length) {
+            content = plaintext.subarray(actualOffset, actualOffset + length);
+          }
         }
       } else if (payload.fileContents && payload.fileContents[file.relativePath]) {
         // Version 1: Legacy base64 format
         content = Buffer.from(payload.fileContents[file.relativePath], "base64");
       } else if (file.isHandoff && payload.handoff) {
+        // Fallback for legacy format
         content = Buffer.from(payload.handoff, "utf8");
       }
 

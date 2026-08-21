@@ -127,12 +127,11 @@ test("symlink in source is rejected", async () => {
     await writeFile(handoffPath, "test content", "utf8");
     await symlink(handoffPath, linkPath);
 
-    // Should skip symlinks during encryption
-    await encryptBundle(dir, encryptedPath, "test-pass");
-
-    // Verify encrypted file was created (symlink was skipped)
-    const encryptedStat = await stat(encryptedPath);
-    assert.ok(encryptedStat.size > 0);
+    // Should reject symlinks during encryption with clear error
+    await assert.rejects(
+      encryptBundle(dir, encryptedPath, "test-pass"),
+      /symbolic link/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -665,8 +664,9 @@ test("binary format ciphertext tamper fails", async () => {
   }
 });
 
-// Test restore integrity - hash verification
-test("restore verifies SHA-256 hash of each file", async () => {
+// Test restore integrity - tamper detection
+// In v2 format, ALL data is encrypted, so tampering causes decryption failure
+test("tamper of encrypted payload fails decryption", async () => {
   const dir = await tempDir();
   try {
     const bundleDir = join(dir, "bundle");
@@ -674,34 +674,29 @@ test("restore verifies SHA-256 hash of each file", async () => {
     const attachmentsDir = join(bundleDir, "attachments");
     await mkdir(attachmentsDir, { recursive: true });
     
-    // Create handoff + large attachment to ensure we have binary section
+    // Create handoff + attachment
     await writeFile(join(bundleDir, "HANDOFF.md"), "# Test", "utf8");
-    // Create a larger file so binary section is substantial
     await writeFile(join(attachmentsDir, "data.bin"), "x".repeat(1000), "utf8");
 
     const encryptedPath = join(dir, "encrypted.cbx");
-    const restoredDir = join(dir, "restored");
 
     await encryptBundle(bundleDir, encryptedPath, "test-pass");
 
-    // Get file size to find binary section
+    // Tamper with ciphertext - in v2, ALL data is encrypted
     const fileData = await readFile(encryptedPath);
-    // Binary section starts after header (68) + manifest. Manifest is roughly 200-300 bytes for small files
-    // So binary section should start around byte 300-400
-    // We'll corrupt near the end of the file to ensure we're in binary section
-    const corruptOffset = fileData.length - 500; // Near end of file
-    
     const tamperedData = Buffer.from(fileData);
+    // Tamper near the middle/end of encrypted data
+    const corruptOffset = fileData.length - 500;
     if (tamperedData.length > corruptOffset && corruptOffset > 0) {
       tamperedData.writeUInt8(tamperedData.readUInt8(corruptOffset) ^ 0xFF, corruptOffset);
     }
     await writeFile(encryptedPath, tamperedData);
 
-    // Restore should detect hash mismatch in the binary section
-    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
-    // Should have errors due to hash mismatch
-    assert.ok(restoreResult.errors.length > 0, "should have hash mismatch errors");
-    assert.ok(restoreResult.errors[0].includes("hash mismatch"), "error should be about hash mismatch");
+    // Decryption should fail due to tamper
+    await assert.rejects(
+      inspectBundle(encryptedPath, "test-pass"),
+      /decryption failed/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -742,6 +737,47 @@ test("nested directory structure with multiple files", async () => {
 
     const f2 = await readFile(join(restoredDir, "attachments", "file2.txt"), "utf8");
     assert.equal(f2, "file 2 content");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test truly nested directory structure (at least 2 levels deep)
+test("truly nested directory structure preserves deep paths", async () => {
+  const dir = await tempDir();
+  try {
+    const bundleDir = join(dir, "bundle");
+    await mkdir(bundleDir, { recursive: true });
+    const deepDir = join(bundleDir, "attachments", "subfolder", "nested");
+    await mkdir(deepDir, { recursive: true });
+
+    await writeFile(join(bundleDir, "HANDOFF.md"), "# Main handoff", "utf8");
+    await writeFile(join(bundleDir, "attachments", "level1.txt"), "level 1", "utf8");
+    await writeFile(join(bundleDir, "attachments", "subfolder", "level2.txt"), "level 2", "utf8");
+    await writeFile(join(deepDir, "level3.txt"), "level 3 - truly nested!", "utf8");
+
+    const encryptedPath = join(dir, "encrypted.cbx");
+    const restoredDir = join(dir, "restored");
+
+    const encryptResult = await encryptBundle(bundleDir, encryptedPath, "test-pass");
+    assert.equal(encryptResult.fileCount, 4);
+
+    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
+    assert.equal(restoreResult.restoredCount, 4);
+    assert.equal(restoreResult.errors.length, 0);
+
+    // Verify all nested paths are preserved
+    const handoff = await readFile(join(restoredDir, "HANDOFF.md"), "utf8");
+    assert.equal(handoff, "# Main handoff");
+
+    const l1 = await readFile(join(restoredDir, "attachments", "level1.txt"), "utf8");
+    assert.equal(l1, "level 1");
+
+    const l2 = await readFile(join(restoredDir, "attachments", "subfolder", "level2.txt"), "utf8");
+    assert.equal(l2, "level 2");
+
+    const l3 = await readFile(join(restoredDir, "attachments", "subfolder", "nested", "level3.txt"), "utf8");
+    assert.equal(l3, "level 3 - truly nested!");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
