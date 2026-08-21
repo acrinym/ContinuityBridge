@@ -68,21 +68,23 @@ ContinuityBridge's encrypted portable bundles (.cbx files) provide strong securi
 4. **Path Traversal Protection**
    - Absolute paths are rejected
    - Parent traversal (..) is rejected
-   - Symlinks in source are skipped during encryption
+   - Symlinks in source are rejected during encryption (not silently skipped)
    - Symlinks in restore target cause failure
 
 ### File Format
 
 ```
-[Magic: "CBX"][Version: 1][Salt: 32B][Nonce: 12B][AuthTag: 16B][Encrypted JSON payload]
+[Magic: "CBX"][Version: 2][Salt: 32B][Nonce: 12B][AuthTag: 16B][ManifestSize: 4B][Encrypted (manifest + all file bytes)]
 ```
 
 The encrypted payload contains:
 - Schema version
 - Creation timestamp
-- Handoff file content (UTF-8)
-- File list with relative paths and SHA-256 hashes
-- File contents (stored as binary)
+- Handoff filename (content stored in encrypted binary section)
+- File list with relative paths, SHA-256 hashes, offsets, and lengths
+- All file contents (stored as encrypted binary)
+
+Version 2 format ensures ALL payload bytes are encrypted and authenticated with AES-256-GCM.
 
 ### Limitations
 
