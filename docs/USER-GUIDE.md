@@ -51,7 +51,7 @@ The encrypt command requires a passphrase, which must be provided via stdin (not
 
 #### Inspecting an Encrypted Bundle
 
-View bundle contents without decrypting:
+Inspect the bundle contents (decrypts and authenticates in memory/stream but does not restore files):
 
 ```bash
 continuity-bridge portable inspect encrypted.cbx

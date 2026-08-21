@@ -45,28 +45,37 @@ test("round-trip with nested attachment directory", async () => {
   try {
     const bundleDir = join(dir, "bundle");
     await mkdir(bundleDir, { recursive: true });
-    const attachmentsDir = join(bundleDir, "attachments");
-    await mkdir(attachmentsDir, { recursive: true });
+    // Create genuinely nested structure: at least two directory levels below attachments
+    const deepNestedDir = join(bundleDir, "attachments", "reference", "images");
+    await mkdir(deepNestedDir, { recursive: true });
     await writeFile(join(bundleDir, "HANDOFF.md"), "# Test Handoff", "utf8");
-    await writeFile(join(attachmentsDir, "test.txt"), "attachment content", "utf8");
+    // Single-level attachment (for backward compatibility)
+    await writeFile(join(bundleDir, "attachments", "test.txt"), "attachment content", "utf8");
+    // Genuinely nested attachment (exercises recursion)
+    await writeFile(join(deepNestedDir, "test.txt"), "deeply nested attachment content", "utf8");
 
     const encryptedPath = join(dir, "encrypted.cbx");
     const restoredDir = join(dir, "restored");
 
     const encryptResult = await encryptBundle(bundleDir, encryptedPath, "bundle-pass-456");
-    assert.equal(encryptResult.fileCount, 2); // HANDOFF.md + 1 attachment
+    assert.equal(encryptResult.fileCount, 3); // HANDOFF.md + 2 attachments
 
     const inspectResult = await inspectBundle(encryptedPath, "bundle-pass-456");
-    assert.equal(inspectResult.fileCount, 2);
+    assert.equal(inspectResult.fileCount, 3);
 
     const restoreResult = await restoreBundle(encryptedPath, restoredDir, "bundle-pass-456");
-    assert.equal(restoreResult.restoredCount, 2);
+    assert.equal(restoreResult.restoredCount, 3);
 
     const handoffContent = await readFile(join(restoredDir, "HANDOFF.md"), "utf8");
     assert.equal(handoffContent, "# Test Handoff");
 
+    // Verify single-level attachment
     const attContent = await readFile(join(restoredDir, "attachments", "test.txt"), "utf8");
     assert.equal(attContent, "attachment content");
+
+    // Verify deeply nested attachment path is preserved exactly
+    const deepNestedContent = await readFile(join(restoredDir, "attachments", "reference", "images", "test.txt"), "utf8");
+    assert.equal(deepNestedContent, "deeply nested attachment content");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
