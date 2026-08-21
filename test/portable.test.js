@@ -101,8 +101,8 @@ test("ciphertext tamper fails", async () => {
 
     const fileData = await readFile(encryptedPath);
     const tamperedData = Buffer.from(fileData);
-    // Tamper with a byte in the ciphertext (position after header: magic(3) + version(1) + salt(32) + nonce(12) + tag(16) = 64)
-    const ciphertextOffset = 64;
+    // Tamper with a byte in the ciphertext (position after header: magic(3) + version(1) + salt(32) + nonce(12) + tag(16) + manifestSize(4) = 68)
+    const ciphertextOffset = 68;
     if (tamperedData.length > ciphertextOffset) {
       tamperedData.writeUInt8(tamperedData.readUInt8(ciphertextOffset) ^ 0xff, ciphertextOffset);
     }
@@ -321,7 +321,7 @@ test("magic header verification", async () => {
     assert.equal(magic, "CBX");
 
     const version = fileData.readUInt8(3);
-    assert.equal(version, 1);
+    assert.equal(version, 2); // Version 2 uses binary format
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -333,10 +333,10 @@ test("invalid magic header is rejected", async () => {
     const corruptedPath = join(dir, "corrupted.cbx");
 
     // Create a fake encrypted file with invalid magic but enough data to pass length check
-    // Header is: magic(3) + version(1) + salt(32) + nonce(12) + tag(16) = 64 bytes
-    const fakeHeader = Buffer.alloc(64);
+    // Header is: magic(3) + version(1) + salt(32) + nonce(12) + tag(16) + manifestSize(4) = 68 bytes
+    const fakeHeader = Buffer.alloc(68);
     fakeHeader.write("NOTCBX", 0, 3, "utf8"); // Invalid magic
-    fakeHeader.writeUInt8(1, 3); // version
+    fakeHeader.writeUInt8(2, 3); // version 2
     await writeFile(corruptedPath, fakeHeader);
 
     await assert.rejects(
@@ -531,6 +531,217 @@ test("restore with staging directory is atomic", async () => {
 
     const restoredContent = await readFile(join(restoredDir, "test.md"), "utf8");
     assert.equal(restoredContent, "atomic restore test");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test binary format (version 2) - no base64 amplification
+test("encrypted bundle uses binary format without base64 amplification", async () => {
+  const dir = await tempDir();
+  try {
+    const bundleDir = join(dir, "bundle");
+    await mkdir(bundleDir, { recursive: true });
+    const attachmentsDir = join(bundleDir, "attachments");
+    await mkdir(attachmentsDir, { recursive: true });
+
+    // Create a known-size file (1MB of data)
+    const largeContent = "x".repeat(1024 * 1024); // 1MB
+    await writeFile(join(bundleDir, "HANDOFF.md"), "# Test\n\nLarge handoff content", "utf8");
+    await writeFile(join(attachmentsDir, "large.bin"), largeContent, "utf8");
+
+    const encryptedPath = join(dir, "encrypted.cbx");
+
+    const encryptResult = await encryptBundle(bundleDir, encryptedPath, "test-pass");
+    assert.equal(encryptResult.fileCount, 2);
+
+    // Inspect and verify format version
+    const inspectResult = await inspectBundle(encryptedPath, "test-pass");
+    assert.equal(inspectResult.formatVersion, 2, "should use format version 2");
+    assert.ok(inspectResult.files.length > 0);
+
+    // Check that files have offset/length (binary format)
+    for (const file of inspectResult.files) {
+      assert.ok(typeof file.offset === "number", "file should have offset");
+      assert.ok(typeof file.length === "number", "file should have length");
+      assert.ok(file.length > 0, "file should have non-zero length");
+    }
+
+    // Restore and verify
+    const restoredDir = join(dir, "restored");
+    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
+    assert.equal(restoreResult.restoredCount, 2);
+    assert.equal(restoreResult.errors.length, 0);
+
+    // Verify large file was restored correctly
+    const restoredLarge = await readFile(join(restoredDir, "attachments", "large.bin"), "utf8");
+    assert.equal(restoredLarge.length, largeContent.length);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test source mutation detection - hash computed from content
+test("hash is computed from actual content not filesystem", async () => {
+  const dir = await tempDir();
+  try {
+    const handoffPath = join(dir, "test.md");
+    const encryptedPath = join(dir, "encrypted.cbx");
+    const restoredDir = join(dir, "restored");
+
+    // Create initial file
+    await writeFile(handoffPath, "original content", "utf8");
+    await encryptBundle(handoffPath, encryptedPath, "test-pass");
+
+    // Modify source file AFTER encryption
+    await writeFile(handoffPath, "modified content", "utf8");
+
+    // Restore should still work because we hashed the content before modification
+    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
+    assert.equal(restoreResult.restoredCount, 1);
+    assert.equal(restoreResult.errors.length, 0);
+
+    // Verify we got the ORIGINAL content, not the modified one
+    const restoredContent = await readFile(join(restoredDir, "test.md"), "utf8");
+    assert.equal(restoredContent, "original content");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test wrong passphrase detection (binary format)
+test("wrong passphrase fails on binary format", async () => {
+  const dir = await tempDir();
+  try {
+    const bundleDir = join(dir, "bundle");
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(join(bundleDir, "HANDOFF.md"), "# Test", "utf8");
+
+    const encryptedPath = join(dir, "encrypted.cbx");
+    await encryptBundle(bundleDir, encryptedPath, "correct-pass");
+
+    // Wrong passphrase should fail
+    await assert.rejects(
+      inspectBundle(encryptedPath, "wrong-pass"),
+      /decryption failed/,
+    );
+
+    await assert.rejects(
+      restoreBundle(encryptedPath, join(dir, "restored"), "wrong-pass"),
+      /decryption failed/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test binary format tamper detection
+test("binary format ciphertext tamper fails", async () => {
+  const dir = await tempDir();
+  try {
+    const bundleDir = join(dir, "bundle");
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(join(bundleDir, "HANDOFF.md"), "# Test content", "utf8");
+
+    const encryptedPath = join(dir, "encrypted.cbx");
+    await encryptBundle(bundleDir, encryptedPath, "test-pass");
+
+    // Tamper with a byte in the ciphertext (position 68 = header with manifest size)
+    const fileData = await readFile(encryptedPath);
+    const tamperedData = Buffer.from(fileData);
+    const ciphertextOffset = 68; // Header with manifest size
+    if (tamperedData.length > ciphertextOffset) {
+      tamperedData.writeUInt8(tamperedData.readUInt8(ciphertextOffset) ^ 0x01, ciphertextOffset);
+    }
+    await writeFile(encryptedPath, tamperedData);
+
+    // Decryption should fail due to tamper
+    await assert.rejects(
+      inspectBundle(encryptedPath, "test-pass"),
+      /decryption failed/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test restore integrity - hash verification
+test("restore verifies SHA-256 hash of each file", async () => {
+  const dir = await tempDir();
+  try {
+    const bundleDir = join(dir, "bundle");
+    await mkdir(bundleDir, { recursive: true });
+    const attachmentsDir = join(bundleDir, "attachments");
+    await mkdir(attachmentsDir, { recursive: true });
+    
+    // Create handoff + large attachment to ensure we have binary section
+    await writeFile(join(bundleDir, "HANDOFF.md"), "# Test", "utf8");
+    // Create a larger file so binary section is substantial
+    await writeFile(join(attachmentsDir, "data.bin"), "x".repeat(1000), "utf8");
+
+    const encryptedPath = join(dir, "encrypted.cbx");
+    const restoredDir = join(dir, "restored");
+
+    await encryptBundle(bundleDir, encryptedPath, "test-pass");
+
+    // Get file size to find binary section
+    const fileData = await readFile(encryptedPath);
+    // Binary section starts after header (68) + manifest. Manifest is roughly 200-300 bytes for small files
+    // So binary section should start around byte 300-400
+    // We'll corrupt near the end of the file to ensure we're in binary section
+    const corruptOffset = fileData.length - 500; // Near end of file
+    
+    const tamperedData = Buffer.from(fileData);
+    if (tamperedData.length > corruptOffset && corruptOffset > 0) {
+      tamperedData.writeUInt8(tamperedData.readUInt8(corruptOffset) ^ 0xFF, corruptOffset);
+    }
+    await writeFile(encryptedPath, tamperedData);
+
+    // Restore should detect hash mismatch in the binary section
+    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
+    // Should have errors due to hash mismatch
+    assert.ok(restoreResult.errors.length > 0, "should have hash mismatch errors");
+    assert.ok(restoreResult.errors[0].includes("hash mismatch"), "error should be about hash mismatch");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Test nested attachment payloads
+test("nested directory structure with multiple files", async () => {
+  const dir = await tempDir();
+  try {
+    const bundleDir = join(dir, "bundle");
+    await mkdir(bundleDir, { recursive: true });
+    const attachmentsDir = join(bundleDir, "attachments");
+    await mkdir(attachmentsDir, { recursive: true });
+
+    await writeFile(join(bundleDir, "HANDOFF.md"), "# Main handoff", "utf8");
+    await writeFile(join(attachmentsDir, "file1.txt"), "file 1 content", "utf8");
+    await writeFile(join(attachmentsDir, "file2.txt"), "file 2 content", "utf8");
+
+    const encryptedPath = join(dir, "encrypted.cbx");
+    const restoredDir = join(dir, "restored");
+
+    const encryptResult = await encryptBundle(bundleDir, encryptedPath, "test-pass");
+    assert.equal(encryptResult.fileCount, 3);
+
+    const inspectResult = await inspectBundle(encryptedPath, "test-pass");
+    assert.equal(inspectResult.fileCount, 3);
+
+    const restoreResult = await restoreBundle(encryptedPath, restoredDir, "test-pass");
+    assert.equal(restoreResult.restoredCount, 3);
+    assert.equal(restoreResult.errors.length, 0);
+
+    // Verify all files restored
+    const handoff = await readFile(join(restoredDir, "HANDOFF.md"), "utf8");
+    assert.equal(handoff, "# Main handoff");
+
+    const f1 = await readFile(join(restoredDir, "attachments", "file1.txt"), "utf8");
+    assert.equal(f1, "file 1 content");
+
+    const f2 = await readFile(join(restoredDir, "attachments", "file2.txt"), "utf8");
+    assert.equal(f2, "file 2 content");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -19,7 +19,9 @@ function splitPath(path) {
 }
 
 const SCHEMA_VERSION = "continuity-bridge/encrypted-bundle-v1";
-const SCHEMA_FORMAT_VERSION = 1;
+// Format version 2: binary streaming format (no base64 JSON amplification)
+// Version 1: legacy base64 JSON format (deprecated)
+const SCHEMA_FORMAT_VERSION = 2;
 
 // Magic header: "CBX" followed by format version byte
 const MAGIC_HEADER = Buffer.from("CBX");
@@ -27,7 +29,8 @@ const HEADER_VERSION_OFFSET = MAGIC_HEADER.length;
 const HEADER_SALT_OFFSET = HEADER_VERSION_OFFSET + 1;
 const HEADER_NONCE_OFFSET = HEADER_SALT_OFFSET + SALT_LENGTH;
 const HEADER_TAG_OFFSET = HEADER_NONCE_OFFSET + NONCE_LENGTH;
-const HEADER_TOTAL_LENGTH = HEADER_TAG_OFFSET + 16; // 16 bytes for GCM auth tag
+const HEADER_MANIFEST_SIZE_OFFSET = HEADER_TAG_OFFSET + 16; // 16 bytes for GCM auth tag
+const HEADER_TOTAL_LENGTH = HEADER_MANIFEST_SIZE_OFFSET + 4; // 4 bytes for manifest size (version 2+)
 
 // Reserved/unsupported algorithm identifiers
 const SUPPORTED_ALGORITHMS = ["aes-256-gcm"];
@@ -201,13 +204,14 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
             continue; // Skip symlinks and non-regular files
           }
 
-          const hash = await hashFile(attPath);
           const content = await readFile(attPath);
+          // Compute hash from content to detect source mutation
+          const contentHash = createHash("sha256").update(content).digest("hex");
           // Store raw binary (will be converted to JSON-safe format later)
           fileContents[`attachments/${attFile.name}`] = content;
           files.push({
             relativePath: `attachments/${attFile.name}`,
-            sha256: hash,
+            sha256: contentHash,
           });
         }
       }
@@ -221,20 +225,22 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
         const handoffPath = join(absoluteInput, entry.name);
         handoffContent = await readFile(handoffPath, "utf8");
         handoffName = entry.name;
-        const hash = await hashFile(handoffPath);
+        // Compute hash from content to detect source mutation
+        const contentHash = createHash("sha256").update(handoffContent).digest("hex");
         files.push({
           relativePath: entry.name,
-          sha256: hash,
+          sha256: contentHash,
           isHandoff: true,
         });
       } else if (entry.isFile()) {
         const filePath = join(absoluteInput, entry.name);
-        const hash = await hashFile(filePath);
         const content = await readFile(filePath);
+        // Compute hash from content to detect source mutation
+        const contentHash = createHash("sha256").update(content).digest("hex");
         fileContents[entry.name] = content;
         files.push({
           relativePath: entry.name,
-          sha256: hash,
+          sha256: contentHash,
         });
       }
     }
@@ -253,20 +259,49 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
 
     handoffContent = await readFile(absoluteInput, "utf8");
     handoffName = relative(dirname(absoluteInput), absoluteInput);
-    const hash = await hashFile(absoluteInput);
+    // Compute hash from content to detect source mutation
+    const contentHash = createHash("sha256").update(handoffContent).digest("hex");
     files.push({
       relativePath: handoffName,
-      sha256: hash,
+      sha256: contentHash,
       isHandoff: true,
     });
   }
 
-  // Convert binary contents to base64 for JSON serialization
-  const fileContentsBase64 = {};
-  for (const [path, content] of Object.entries(fileContents)) {
-    fileContentsBase64[path] = content.toString("base64");
+  // Build binary payload format: manifest + raw file contents
+  // This avoids base64 JSON amplification (version 2+)
+  
+  // Calculate offsets and build manifest
+  let currentOffset = 0;
+  const fileOrder = []; // Order of files in binary section
+  
+  // Build files array with offsets
+  // For handoff files: stored in manifest JSON (offset/length = -1 to indicate manifest)
+  // For attachment files: stored in binary section
+  const filesWithOffsets = [];
+  for (const file of files) {
+    let offset, length;
+    if (file.isHandoff) {
+      // Handoff is stored in manifest JSON, not binary section
+      offset = -1;
+      length = handoffContent ? handoffContent.length : 0;
+    } else {
+      const content = fileContents[file.relativePath];
+      offset = currentOffset;
+      length = content ? content.length : 0;
+      currentOffset += length;
+    }
+    filesWithOffsets.push({
+      relativePath: file.relativePath,
+      sha256: file.sha256,
+      isHandoff: file.isHandoff || false,
+      offset: offset,
+      length: length,
+    });
+    fileOrder.push(file.relativePath);
   }
 
+  // Build manifest JSON (no file contents - just metadata + offsets)
   const payload = {
     schema: SCHEMA_VERSION,
     formatVersion: SCHEMA_FORMAT_VERSION,
@@ -275,12 +310,8 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
     createdAt: new Date().toISOString(),
     handoff: handoffContent,
     handoffName,
-    files: files.map((f) => ({
-      relativePath: f.relativePath,
-      sha256: f.sha256,
-      isHandoff: f.isHandoff || false,
-    })),
-    fileContents: fileContentsBase64,
+    files: filesWithOffsets,
+    fileOrder: fileOrder,
   };
 
   const payloadJson = JSON.stringify(payload);
@@ -289,17 +320,25 @@ export async function encryptBundle(inputPath, outputPath, passphrase, options =
   const encrypted = Buffer.concat([cipher.update(payloadBuffer), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  // Write header: MAGIC (3) + version (1) + salt (32) + nonce (12) + tag (16)
+  // Write header: MAGIC (3) + version (1) + salt (32) + nonce (12) + tag (16) + manifestSize (4)
   const header = Buffer.alloc(HEADER_TOTAL_LENGTH);
   MAGIC_HEADER.copy(header, 0);
   header.writeUInt8(SCHEMA_FORMAT_VERSION, HEADER_VERSION_OFFSET);
   salt.copy(header, HEADER_SALT_OFFSET);
   nonce.copy(header, HEADER_NONCE_OFFSET);
   authTag.copy(header, HEADER_TAG_OFFSET);
+  header.writeUInt32LE(encrypted.length, HEADER_MANIFEST_SIZE_OFFSET);
 
+  // Concatenate all file contents in order
+  const binarySection = Buffer.concat(
+    fileOrder.map((path) => fileContents[path] || Buffer.alloc(0))
+  );
+
+  // Write: header + encrypted manifest + raw binary file data
   const output = createWriteStream(absoluteOutput);
   output.write(header);
   output.write(encrypted);
+  output.write(binarySection);
   await new Promise((resolve, reject) => {
     output.on("error", reject);
     output.on("finish", resolve);
@@ -319,7 +358,7 @@ export async function inspectBundle(encryptedPath, passphrase) {
 
   const fileBuffer = await readFile(absolutePath);
 
-  // Check minimum length for new header format
+  // Check minimum length for header format
   if (fileBuffer.length < HEADER_TOTAL_LENGTH) {
     throw new Error("invalid encrypted bundle: file too short");
   }
@@ -331,14 +370,29 @@ export async function inspectBundle(encryptedPath, passphrase) {
   }
 
   const version = fileBuffer.readUInt8(HEADER_VERSION_OFFSET);
-  if (version !== SCHEMA_FORMAT_VERSION) {
-    throw new Error(`unsupported format version: ${version}; supported version: ${SCHEMA_FORMAT_VERSION}`);
+  // Support both version 1 (legacy base64) and version 2+ (binary streaming)
+  if (version > SCHEMA_FORMAT_VERSION) {
+    throw new Error(`unsupported format version: ${version}; supported versions: 1-${SCHEMA_FORMAT_VERSION}`);
   }
 
   const salt = fileBuffer.subarray(HEADER_SALT_OFFSET, HEADER_SALT_OFFSET + SALT_LENGTH);
   const nonce = fileBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
   const tag = fileBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
-  const ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
+  
+  let ciphertext, binarySection, manifestSize;
+  
+  if (version >= 2) {
+    // Version 2+: Read manifest size from header, then extract ciphertext and binary section
+    manifestSize = fileBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
+    const ciphertextEnd = HEADER_TOTAL_LENGTH + manifestSize;
+    ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH, ciphertextEnd);
+    binarySection = fileBuffer.subarray(ciphertextEnd);
+  } else {
+    // Version 1: all ciphertext, no binary section
+    ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
+    binarySection = Buffer.alloc(0);
+    manifestSize = ciphertext.length;
+  }
 
   const key = deriveKey(passphrase, salt);
 
@@ -374,8 +428,10 @@ export async function inspectBundle(encryptedPath, passphrase) {
     throw new Error(`unsupported KDF: ${payload.kdf}`);
   }
 
+  // Return file info (not contents) - use offset/length for version 2+
   return {
     schema: payload.schema,
+    formatVersion: version,
     createdAt: payload.createdAt,
     handoffName: payload.handoffName,
     handoffPreview: payload.handoff
@@ -385,8 +441,12 @@ export async function inspectBundle(encryptedPath, passphrase) {
       relativePath: f.relativePath,
       sha256: f.sha256,
       isHandoff: f.isHandoff || false,
+      // Version 2+ includes offset/length for streaming
+      offset: f.offset,
+      length: f.length,
     })),
     fileCount: payload.files.length,
+    _binarySection: binarySection, // Internal: for restoreBundle
   };
 }
 
@@ -397,7 +457,7 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
 
   const fileBuffer = await readFile(absoluteInput);
 
-  // Check minimum length for new header format
+  // Check minimum length for header format
   if (fileBuffer.length < HEADER_TOTAL_LENGTH) {
     throw new Error("invalid encrypted bundle: file too short");
   }
@@ -409,14 +469,28 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
   }
 
   const version = fileBuffer.readUInt8(HEADER_VERSION_OFFSET);
-  if (version !== SCHEMA_FORMAT_VERSION) {
-    throw new Error(`unsupported format version: ${version}; supported version: ${SCHEMA_FORMAT_VERSION}`);
+  // Support both version 1 (legacy base64) and version 2+ (binary streaming)
+  if (version > SCHEMA_FORMAT_VERSION) {
+    throw new Error(`unsupported format version: ${version}; supported versions: 1-${SCHEMA_FORMAT_VERSION}`);
   }
 
   const salt = fileBuffer.subarray(HEADER_SALT_OFFSET, HEADER_SALT_OFFSET + SALT_LENGTH);
   const nonce = fileBuffer.subarray(HEADER_NONCE_OFFSET, HEADER_NONCE_OFFSET + NONCE_LENGTH);
   const tag = fileBuffer.subarray(HEADER_TAG_OFFSET, HEADER_TAG_OFFSET + 16);
-  const ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
+  
+  let ciphertext, binarySection;
+  
+  if (version >= 2) {
+    // Version 2+: Read manifest size from header, then extract ciphertext and binary section
+    const manifestSize = fileBuffer.readUInt32LE(HEADER_MANIFEST_SIZE_OFFSET);
+    const ciphertextEnd = HEADER_TOTAL_LENGTH + manifestSize;
+    ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH, ciphertextEnd);
+    binarySection = fileBuffer.subarray(ciphertextEnd);
+  } else {
+    // Version 1: all ciphertext, no binary section
+    ciphertext = fileBuffer.subarray(HEADER_TOTAL_LENGTH);
+    binarySection = Buffer.alloc(0);
+  }
 
   const key = deriveKey(passphrase, salt);
 
@@ -546,8 +620,20 @@ export async function restoreBundle(encryptedPath, outputPath, passphrase, optio
     for (const file of payload.files) {
       let content = null;
 
-      // First check if we have stored content in the payload
-      if (payload.fileContents && payload.fileContents[file.relativePath]) {
+      // Version 2+: Read from binary section using offset/length
+      // offset = -1 means content is stored in manifest (for handoff files)
+      if (version >= 2 && binarySection) {
+        const offset = file.offset;
+        const length = file.length || 0;
+        if (offset !== undefined && offset >= 0 && length > 0 && binarySection.length >= offset + length) {
+          // Read from binary section
+          content = binarySection.subarray(offset, offset + length);
+        } else if (file.isHandoff && payload.handoff) {
+          // Handoff is stored as UTF-8 in the manifest
+          content = Buffer.from(payload.handoff, "utf8");
+        }
+      } else if (payload.fileContents && payload.fileContents[file.relativePath]) {
+        // Version 1: Legacy base64 format
         content = Buffer.from(payload.fileContents[file.relativePath], "base64");
       } else if (file.isHandoff && payload.handoff) {
         content = Buffer.from(payload.handoff, "utf8");
