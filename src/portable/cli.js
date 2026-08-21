@@ -1,6 +1,15 @@
 import { createReadStream, readFile, readFileSync } from "node:fs";
-import { createInterface } from "node:readline";
+import { createInterface, emitKeypressEvents } from "node:readline";
 import { encryptBundle, inspectBundle, restoreBundle, SCHEMA_VERSION } from "./encrypt.js";
+
+// Helper to restore raw mode safely
+function restoreRawMode(originalRawMode) {
+  try {
+    process.stdin.setRawMode(originalRawMode);
+  } catch {
+    // Ignore errors when restoring
+  }
+}
 
 // Cross-platform no-echo passphrase prompt
 // Uses keypress events on TTY to read without echoing to terminal
@@ -15,18 +24,32 @@ function promptPassphrase(promptText, confirm = false) {
     process.stdout.write(promptText);
 
     let passphrase = "";
-    let mode = "password";
 
-    // Set raw mode for TTY to capture keypresses without echo
+    // Save original raw mode state to restore on exit
     const originalRawMode = process.stdin.isRaw;
 
+    // Ensure keypress events are emitted for stdin
+    // This is required for the 'keypress' event to work on all platforms
+    if (!process.stdin.emitKeypressEvents) {
+      emitKeypressEvents(process.stdin);
+    }
+
+    // Helper to cleanup and restore raw mode
+    const cleanup = () => {
+      process.stdin.removeListener("keypress", onKeypress);
+      restoreRawMode(originalRawMode);
+    };
+
     // Use keypress to capture input without echo
-    const onKeypress = (s) => {
-      if (s === "\r" || s === "\n") {
+    // Handle both (str, key) signature that Node.js provides
+    const onKeypress = (str, key) => {
+      // Handle both string and key parameter forms
+      const char = str;
+      
+      if (char === "\r" || char === "\n") {
         // Enter pressed - finish
         process.stdout.write("\n");
-        process.stdin.removeListener("keypress", onKeypress);
-        process.stdin.setRawMode(false);
+        cleanup();
 
         if (!passphrase || passphrase.trim() === "") {
           reject(new Error("passphrase cannot be empty"));
@@ -37,53 +60,59 @@ function promptPassphrase(promptText, confirm = false) {
           process.stdout.write("Confirm passphrase: ");
           let confirmPassphrase = "";
 
-          const onConfirmKeypress = (cs) => {
-            if (cs === "\r" || cs === "\n") {
+          const onConfirmKeypress = (cstr, ckey) => {
+            const cchar = cstr;
+            
+            if (cchar === "\r" || cchar === "\n") {
               process.stdout.write("\n");
               process.stdin.removeListener("keypress", onConfirmKeypress);
-              process.stdin.setRawMode(false);
+              restoreRawMode(originalRawMode);
 
               if (passphrase !== confirmPassphrase) {
                 reject(new Error("passphrases do not match"));
                 return;
               }
               resolve(passphrase);
-            } else if (cs === "\u0003") {
+            } else if (ckey && ckey.ctrl && ckey.name === "c") {
               // Ctrl+C
               process.stdin.removeListener("keypress", onConfirmKeypress);
-              process.stdin.setRawMode(false);
+              restoreRawMode(originalRawMode);
               reject(new Error("cancelled"));
-            } else if (cs === "\u007f") {
+            } else if (cchar === "\u007f" || (ckey && ckey.name === "backspace")) {
               // Backspace
               if (confirmPassphrase.length > 0) {
                 confirmPassphrase = confirmPassphrase.slice(0, -1);
                 process.stdout.write("\b \b");
               }
-            } else if (cs.length === 1) {
-              confirmPassphrase += cs;
+            } else if (cchar && cchar.length === 1) {
+              confirmPassphrase += cchar;
               process.stdout.write("*");
             }
           };
 
           process.stdin.on("keypress", onConfirmKeypress);
-          process.stdin.setRawMode(true);
+          try {
+            process.stdin.setRawMode(true);
+          } catch (e) {
+            process.stdin.removeListener("keypress", onConfirmKeypress);
+            reject(new Error("cannot enable raw mode for secure passphrase input"));
+          }
         } else {
           resolve(passphrase);
         }
-      } else if (s === "\u0003") {
+      } else if (key && key.ctrl && key.name === "c") {
         // Ctrl+C
-        process.stdin.removeListener("keypress", onKeypress);
-        process.stdin.setRawMode(false);
+        cleanup();
         reject(new Error("cancelled"));
-      } else if (s === "\u007f") {
+      } else if (char === "\u007f" || (key && key.name === "backspace")) {
         // Backspace
         if (passphrase.length > 0) {
           passphrase = passphrase.slice(0, -1);
           process.stdout.write("\b \b");
         }
-      } else if (s.length === 1 && mode === "password") {
+      } else if (char && char.length === 1) {
         // Regular character - capture but don't echo
-        passphrase += s;
+        passphrase += char;
         process.stdout.write("*");
       }
     };
@@ -94,7 +123,7 @@ function promptPassphrase(promptText, confirm = false) {
     try {
       process.stdin.setRawMode(true);
     } catch (e) {
-      process.stdin.removeListener("keypress", onKeypress);
+      cleanup();
       reject(new Error("cannot enable raw mode for secure passphrase input"));
     }
   });
