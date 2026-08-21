@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from .client import BridgeClient
 from .handoff_client import HandoffClient, HandoffOptions
+from .portable_client import PortableClient
 
 
 APP_TITLE = "ContinuityBridge Handoff Builder"
@@ -58,6 +59,16 @@ class HandoffBuilderApp:
             value="Optional: scan a ChatGPT or Claude export and select local artifacts to carry."
         )
         self.status_var = tk.StringVar(value="Describe the task and choose Lore evidence.")
+
+        # Portable bundle variables
+        self.portable_encrypt_input_var = tk.StringVar()
+        self.portable_encrypt_output_var = tk.StringVar()
+        self.portable_inspect_input_var = tk.StringVar()
+        self.portable_restore_input_var = tk.StringVar()
+        self.portable_restore_output_var = tk.StringVar()
+        self.portable_passphrase_var = tk.StringVar()
+        self.portable_passphrase_confirm_var = tk.StringVar()
+        self.portable_status_var = tk.StringVar(value="Encrypted portable bundles")
 
         self._build_style()
         self._build_ui()
@@ -203,6 +214,49 @@ class HandoffBuilderApp:
             style="Muted.TLabel",
         ).grid(row=1, column=2, columnspan=2, sticky="w", pady=(5, 0))
         output.columnconfigure(2, weight=1)
+
+        # Portable encrypted bundle section
+        portable = ttk.LabelFrame(outer, text="6. Encrypted portable bundle", padding=10)
+        portable.pack(fill=tk.X, pady=(0, 10))
+
+        # Encrypt section
+        encrypt_frame = ttk.Frame(portable)
+        encrypt_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(encrypt_frame, text="Encrypt:", width=10).pack(side=tk.LEFT)
+        ttk.Entry(encrypt_frame, textvariable=self.portable_encrypt_input_var, width=30).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(encrypt_frame, text="Browse…", command=self._browse_portable_encrypt_input).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(encrypt_frame, text="Output:").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Entry(encrypt_frame, textvariable=self.portable_encrypt_output_var, width=20).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(encrypt_frame, text="Save as…", command=self._browse_portable_encrypt_output).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(encrypt_frame, text="Encrypt", command=self._encrypt_portable).pack(side=tk.LEFT, padx=(10, 0))
+
+        # Passphrase for encrypt
+        passphrase_frame = ttk.Frame(portable)
+        passphrase_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(passphrase_frame, text="Passphrase:", width=10).pack(side=tk.LEFT)
+        ttk.Entry(passphrase_frame, textvariable=self.portable_passphrase_var, show="*", width=25).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(passphrase_frame, text="Confirm:").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Entry(passphrase_frame, textvariable=self.portable_passphrase_confirm_var, show="*", width=25).pack(side=tk.LEFT, padx=(0, 5))
+
+        # Inspect and Restore section
+        inspect_restore_frame = ttk.Frame(portable)
+        inspect_restore_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(inspect_restore_frame, text="Inspect:", width=10).pack(side=tk.LEFT)
+        ttk.Entry(inspect_restore_frame, textvariable=self.portable_inspect_input_var, width=30).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(inspect_restore_frame, text="Browse…", command=self._browse_portable_inspect_input).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(inspect_restore_frame, text="Inspect", command=self._inspect_portable).pack(side=tk.LEFT, padx=(10, 0))
+
+        restore_frame = ttk.Frame(portable)
+        restore_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(restore_frame, text="Restore:", width=10).pack(side=tk.LEFT)
+        ttk.Entry(restore_frame, textvariable=self.portable_restore_input_var, width=30).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(restore_frame, text="Browse…", command=self._browse_portable_restore_input).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(restore_frame, text="To:").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Entry(restore_frame, textvariable=self.portable_restore_output_var, width=20).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(restore_frame, text="Browse…", command=self._browse_portable_restore_output).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(restore_frame, text="Restore", command=self._restore_portable).pack(side=tk.LEFT, padx=(10, 0))
+
+        ttk.Label(portable, textvariable=self.portable_status_var, style="Muted.TLabel").pack(anchor="w")
 
         runtime = ttk.LabelFrame(outer, text="Runtime", padding=10)
         runtime.pack(fill=tk.X, pady=(0, 10))
@@ -389,6 +443,22 @@ class HandoffBuilderApp:
                     elif kind == "error":
                         self._set_busy(False, "Operation failed.")
                         messagebox.showerror(APP_TITLE, str(payload))
+                    elif kind == "portable_encrypt":
+                        self._set_busy(False, "Encryption complete.")
+                        self.portable_status_var.set(f"Encrypted bundle saved to: {payload}")
+                        messagebox.showinfo(APP_TITLE, f"Encrypted bundle saved to:\n{payload}")
+                    elif kind == "portable_inspect":
+                        self._set_busy(False, "Inspection complete.")
+                        self._show_preview(payload)
+                        self.portable_status_var.set("Inspection complete.")
+                    elif kind == "portable_restore":
+                        path, text = payload
+                        self._set_busy(False, "Restore complete.")
+                        self.portable_status_var.set(f"Restored to: {path}")
+                        messagebox.showinfo(APP_TITLE, f"Restored to:\n{path}\n\n{text}")
+                    elif kind == "portable_error":
+                        self._set_busy(False, "Portable operation failed.")
+                        messagebox.showerror(APP_TITLE, str(payload))
                 except Exception as error:
                     self._set_busy(False, "UI update failed.")
                     messagebox.showerror(APP_TITLE, str(error))
@@ -459,6 +529,141 @@ class HandoffBuilderApp:
         path = filedialog.askopenfilename(title="Choose ContinuityBridge CLI")
         if path:
             self.cli_var.set(path)
+
+    def _portable_client(self) -> PortableClient:
+        return PortableClient(
+            node_command=self.node_var.get().strip() or "node",
+            cli_path=self.cli_var.get().strip() or None,
+        )
+
+    def _browse_portable_encrypt_input(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose handoff or bundle to encrypt",
+            filetypes=(
+                ("Handoff files", "*.md *.json"),
+                ("Bundle directories", ""),
+                ("All files", "*.*"),
+            ),
+        )
+        if path:
+            self.portable_encrypt_input_var.set(path)
+
+    def _browse_portable_encrypt_output(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title="Save encrypted bundle",
+            defaultextension=".cbb",
+            filetypes=(("Encrypted bundle", "*.cbb"), ("All files", "*.*")),
+        )
+        if path:
+            self.portable_encrypt_output_var.set(path)
+
+    def _browse_portable_inspect_input(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose encrypted bundle to inspect",
+            filetypes=(("Encrypted bundle", "*.cbb"), ("All files", "*.*")),
+        )
+        if path:
+            self.portable_inspect_input_var.set(path)
+
+    def _browse_portable_restore_input(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose encrypted bundle to restore",
+            filetypes=(("Encrypted bundle", "*.cbb"), ("All files", "*.*")),
+        )
+        if path:
+            self.portable_restore_input_var.set(path)
+
+    def _browse_portable_restore_output(self) -> None:
+        path = filedialog.askdirectory(title="Choose restore destination directory")
+        if path:
+            self.portable_restore_output_var.set(path)
+
+    def _encrypt_portable(self) -> None:
+        if self.busy:
+            return
+        input_path = self.portable_encrypt_input_var.get().strip()
+        output_path = self.portable_encrypt_output_var.get().strip()
+        passphrase = self.portable_passphrase_var.get()
+        confirm = self.portable_passphrase_confirm_var.get()
+
+        if not input_path:
+            messagebox.showerror(APP_TITLE, "Choose a handoff or bundle to encrypt.")
+            return
+        if not output_path:
+            messagebox.showerror(APP_TITLE, "Choose an output file for the encrypted bundle.")
+            return
+        if not passphrase:
+            messagebox.showerror(APP_TITLE, "Enter a passphrase.")
+            return
+        if passphrase != confirm:
+            messagebox.showerror(APP_TITLE, "Passphrases do not match.")
+            return
+
+        self._set_busy(True, "Encrypting portable bundle…")
+        client = self._portable_client()
+
+        def worker() -> None:
+            try:
+                client.encrypt(input_path, output_path, passphrase)
+                self.events.put(("portable_encrypt", output_path))
+            except Exception as error:
+                self.events.put(("portable_error", str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _inspect_portable(self) -> None:
+        if self.busy:
+            return
+        input_path = self.portable_inspect_input_var.get().strip()
+        passphrase = self.portable_passphrase_var.get()
+
+        if not input_path:
+            messagebox.showerror(APP_TITLE, "Choose an encrypted bundle to inspect.")
+            return
+        if not passphrase:
+            messagebox.showerror(APP_TITLE, "Enter the passphrase.")
+            return
+
+        self._set_busy(True, "Inspecting encrypted bundle…")
+        client = self._portable_client()
+
+        def worker() -> None:
+            try:
+                result = client.inspect(input_path, passphrase, json_output=False)
+                self.events.put(("portable_inspect", result.get("stdout", "")))
+            except Exception as error:
+                self.events.put(("portable_error", str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _restore_portable(self) -> None:
+        if self.busy:
+            return
+        input_path = self.portable_restore_input_var.get().strip()
+        output_path = self.portable_restore_output_var.get().strip()
+        passphrase = self.portable_passphrase_var.get()
+
+        if not input_path:
+            messagebox.showerror(APP_TITLE, "Choose an encrypted bundle to restore.")
+            return
+        if not output_path:
+            messagebox.showerror(APP_TITLE, "Choose a destination directory.")
+            return
+        if not passphrase:
+            messagebox.showerror(APP_TITLE, "Enter the passphrase.")
+            return
+
+        self._set_busy(True, "Restoring encrypted bundle…")
+        client = self._portable_client()
+
+        def worker() -> None:
+            try:
+                result = client.restore(input_path, output_path, passphrase, overwrite=False)
+                self.events.put(("portable_restore", (output_path, result.get("stdout", ""))))
+            except Exception as error:
+                self.events.put(("portable_error", str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _load_settings(self) -> dict:
         try:
