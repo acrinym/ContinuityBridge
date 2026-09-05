@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/release-desktop.yml"
       - "packaging/**"
+      - "assets/icons/**"
       - "desktop/continuity_bridge_lore.py"
       - "desktop/continuity_bridge_desktop/runtime.py"
       - "desktop/continuity_bridge_desktop/lore_runtime.py"
@@ -79,7 +80,7 @@ jobs:
           node packaging/lore-runtime/node_modules/@jordanhindo/lore/dist/cli/lore.js help >/dev/null
           rm -rf packaging/lore-source
       - name: Install desktop build tooling
-        run: python -m pip install ./desktop pyinstaller
+        run: python -m pip install ./desktop pyinstaller pillow
       - name: Build Workstation application
         run: pyinstaller packaging/continuitybridge.spec --clean --noconfirm
       - name: Verify packaged Lore read/write path on Windows
@@ -167,6 +168,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Download built bundles
         uses: actions/download-artifact@v8
         with:
@@ -179,6 +183,15 @@ jobs:
           set -euo pipefail
           cd release-assets
           sha256sum ContinuityBridge-* > SHA256SUMS.txt
+      - name: Validate tracked release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          test -s RELEASE_NOTES.md
+          grep -Fxq -- "# ContinuityBridge $version" RELEASE_NOTES.md
       - name: Publish tagged release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -187,10 +200,14 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "ContinuityBridge $TAG" \
+              --notes-file RELEASE_NOTES.md
             gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
               --title "ContinuityBridge $TAG" \
-              --generate-notes
+              --notes-file RELEASE_NOTES.md
           fi

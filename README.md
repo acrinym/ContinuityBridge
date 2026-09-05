@@ -1,110 +1,143 @@
-# ContinuityBridge
+<p align="center">
+  <img src="assets/brand/continuitybridge-mark.svg" width="132" alt="ContinuityBridge">
+</p>
 
-> **Your AI tools should not forget each other.**
+<h1 align="center">ContinuityBridge</h1>
 
-ContinuityBridge 1.0 is a local-first continuity workstation for carrying user-authorized conversation evidence, repository/code context, and explicitly selected local artifacts between AI tools.
+<p align="center"><strong>Your AI tools should not forget each other.</strong></p>
 
-It imports **ChatGPT** and **Claude** exports, can explicitly capture supported active browser conversations, recalls exact source evidence through Lore, links evidence to repository context, connects supported AI clients through MCP, and builds portable evidence-backed continuation packages.
+<p align="center">
+  Local-first continuity for carrying user-authorized conversation evidence, repository context,
+  and bounded handoffs between AI sessions and tools.
+</p>
 
-**Packaged 1.0 releases include the ContinuityBridge engine, Node.js runtime, pinned Lore runtime, and browser capture companion. No model API key, API credits, source checkout, global Node install, or global Lore npm install is required for the packaged journey.**
+<p align="center">
+  <a href="https://github.com/acrinym/ContinuityBridge/releases/tag/v1.0.0"><strong>Download 1.0.0</strong></a>
+  · <a href="docs/GETTING-STARTED.md">Getting started</a>
+  · <a href="docs/USER-GUIDE.md">User guide</a>
+  · <a href="RELEASE_NOTES.md">Release notes</a>
+  · <a href="docs/PRIVACY.md">Privacy</a>
+</p>
+
+![ContinuityBridge 1.0.0](assets/brand/release-v1.0.0.svg)
+
+## What ContinuityBridge is
+
+ContinuityBridge 1.0 is one workstation for this journey:
 
 ```text
 ChatGPT / Claude exports ─┐
-                         ├──▶ ContinuityBridge Workstation
-explicit browser capture ┘     Home · History · Recall · Connections · Capture · Continue
-                                         │
-                         ┌───────────────┴───────────────┐
-                         ▼                               ▼
-                  bundled/local Lore              portable handoff
-              local evidence · search · MCP   repo state · refs · attachments
-                         │
-                 ┌───────┼────────┐
-                 ▼       ▼        ▼
-              Codex  Claude Code  Cursor
+                         ├──▶ History / Capture
+explicit browser capture ┘          │
+                                    ▼
+                              local Lore evidence
+                                    │
+                         ┌──────────┴──────────┐
+                         ▼                     ▼
+                    Recall source        repository links
+                         │                     │
+                         └──────────┬──────────┘
+                                    ▼
+                              Continue / handoff
+                                    │
+                         ┌──────────┼──────────┐
+                         ▼          ▼          ▼
+                       Codex   Claude Code   Cursor
 ```
 
-## Download and use
+It can:
 
-Tagged releases build:
+- import supported **ChatGPT** and **Claude** exports;
+- explicitly capture recognized visible ChatGPT/Claude browser conversations;
+- recall exact source evidence through Lore;
+- link evidence to repository, issue, and pull-request coordinates;
+- preview and explicitly configure Lore MCP for supported AI clients;
+- build Markdown/JSON continuation packages with bounded evidence and optional verified local artifacts.
 
-- **Windows:** `ContinuityBridge-windows-x64.zip`
-- **macOS:** `ContinuityBridge-macos.zip` containing `ContinuityBridge.app`
-- **Linux:** `ContinuityBridge-linux-x64.tar.gz`
-- **Integrity:** `SHA256SUMS.txt` with SHA-256 digests for every platform archive.
+**Packaged 1.0 releases include the ContinuityBridge engine, a platform Node.js runtime, pinned Lore runtime, `ContinuityBridgeLore`, and the browser capture companion. Packaged users do not need a model API key, API credits, source checkout, global Node installation, or global Lore npm installation.**
 
-Extract the package and launch **ContinuityBridge**.
+## Download
 
-The current 1.0 packages are not code-signed/notarized. Windows SmartScreen or macOS Gatekeeper may therefore show the operating system's normal warning for an unsigned internet-downloaded application. Download only from this repository's GitHub Release, verify the archive against `SHA256SUMS.txt` when integrity matters, and use your operating system's normal review/allow flow rather than disabling platform security globally.
+The `v1.0.0` release publishes:
 
-On first run, the packaged application detects its bundled continuity runtime and offers **Initialize local memory**. That action is optional and explicit: it asks bundled Lore to detect/index supported local transcript sources and verify retrieval. It does not silently configure Codex, Claude Code, or Cursor.
+| Platform | File |
+| --- | --- |
+| Windows x64 | `ContinuityBridge-windows-x64.zip` |
+| macOS | `ContinuityBridge-macos.zip` containing `ContinuityBridge.app` |
+| Linux x64 | `ContinuityBridge-linux-x64.tar.gz` |
+| Integrity | `SHA256SUMS.txt` |
 
-You can skip initialization and instead bring evidence in deliberately through **History** or **Capture**.
+Start with **[Getting started](docs/GETTING-STARTED.md)** for checksum verification, extraction, unsigned-package warnings, and first run.
 
-## The normal user journey
+> **1.0 signing status:** the Windows/macOS packages are currently unsigned / not notarized. SmartScreen or Gatekeeper may show the platform's normal warning for an internet-downloaded unsigned app. Use the OS's normal per-application review/allow path rather than disabling security globally.
 
-1. **Launch ContinuityBridge.** Packaged runtime readiness is checked without requiring a terminal.
-2. **Bring in evidence.** Initialize supported existing local transcript sources, import a ChatGPT/Claude export, or explicitly capture a supported active browser conversation.
-3. **Recall the source.** Search Lore, see real message IDs, and inspect bounded surrounding context.
-4. **Add code context when relevant.** Link exact evidence to a Git repository plus optional issue/PR coordinates, then narrow later Recall by that repository.
-5. **Connect clients.** Preview the exact Lore MCP configuration and explicitly apply it to supported installed clients. Packaged builds point clients at the stable bundled `ContinuityBridgeLore` command.
-6. **Continue.** Carry exact evidence into a task, add current repository state and optional verified local artifacts, preview without copying, then build the portable continuation package.
+A standalone release page also lives at [`docs/release/index.html`](docs/release/index.html).
 
-## What is inside a packaged 1.0 release
-
-- the ContinuityBridge Python Workstation;
-- the ContinuityBridge Node engine;
-- a platform Node.js runtime;
-- Lore 0.2.0 source pinned at commit `7d10369ef265fb73e539223235979ef2f367bdb8`, built from its committed lockfile with production runtime dependencies for the target OS;
-- `ContinuityBridgeLore`, the stable packaged Lore launcher used by the Workstation and MCP clients;
-- the Manifest V3 explicit browser capture companion;
-- project and third-party notices.
-
-`ContinuityBridgeLore` is a launcher, not another memory implementation. It forwards Lore commands to the bundled Node/Lore runtime while preserving normal CLI/stdin/stdout behavior.
-
-User evidence is **not** stored inside the application package. Lore's database remains under `~/.lore/` by default (or configured `LORE_DB`), and ContinuityBridge state remains under `~/.continuity-bridge/`.
-
-## Workstation areas
+## The Workstation
 
 ### Home
 
-Checks the packaged/source runtime, Lore, Git, and supported AI-client connection state. Recent export/handoff paths are convenience metadata, not another conversation database.
+Checks the ContinuityBridge runtime, Lore, optional Git support, and supported AI-client connection state. Packaged builds offer **Initialize local memory** as an explicit action.
 
 ### History
 
-Opens supported ChatGPT/Claude ZIP, folder, and JSON exports; analyzes before mutation; imports selected or complete history; and refreshes repeated imports through destination-aware incremental/resume checkpoints.
+Analyze and import supported ChatGPT/Claude exports. Repeated imports use destination-aware checkpoints so unchanged conversations can be skipped safely.
 
 ### Recall
 
-Searches Lore, displays exact returned IDs and source/session metadata, retrieves surrounding source context with those IDs, and sends selected evidence to Continue.
+Search Lore, inspect bounded surrounding source context, and work with real source/session/message identifiers.
 
-Repository-aware Recall explicitly links evidence to a Git repository plus optional issue/PR references and can narrow later results by that repository. Lore remains the sole conversation-content store.
+Repository-aware Recall can explicitly associate evidence with a Git repository and optional issue / pull-request coordinates without copying conversation content into a second database.
 
 ### Connections
 
-Detects Codex, Claude Code, and Cursor, previews the exact Lore MCP change, requires confirmation, and applies the supported client-specific configuration path.
-
-In packaged 1.0 builds, the command is the stable packaged `ContinuityBridgeLore` executable with `serve` as the MCP argument. An explicit custom Lore command can still be used.
+Detect supported installed **Codex**, **Claude Code**, and **Cursor** clients. Preview the exact Lore MCP configuration and apply it only after explicit confirmation.
 
 ### Capture
 
 Capture is explicit and local:
 
-- receiver is **OFF by default**;
-- Start binds an authenticated HTTP receiver only to `127.0.0.1`;
-- the Workstation shows the exact port, destination, and fresh per-run token;
-- the bundled Manifest V3 companion reads recognized visible ChatGPT/Claude message containers only after **Capture current conversation** is clicked;
+- **OFF by default**;
+- authenticated receiver bound to `127.0.0.1`;
+- fresh per-run bearer token;
+- browser extraction only after **Capture current conversation** is clicked;
+- recognized visible ChatGPT/Claude message structures only;
 - unsupported page structures are refused rather than guessed;
-- unchanged repeated captures are skipped through the same incremental checkpoint machinery used for history refresh;
-- closing the Workstation stops the receiver it started;
-- local/desktop tools can emit the public `continuity-bridge/live-capture-v1` JSON contract when no stable native transcript surface exists.
+- unchanged repeated captures use the same incremental checkpoint machinery as history refresh.
 
 There is no background page observer, LAN listener, or provider-private API client.
 
 ### Continue
 
-Builds Markdown/JSON continuation packages from a task plus exact Lore evidence. Packages can include current Git remote/branch/HEAD/dirty state, optional issue/PR coordinates, and explicitly selected local artifacts copied into a SHA-256-verified portable bundle.
+Build portable continuation packages from a task plus exact Lore evidence. Packages can include repository state, issue/PR coordinates, and explicitly selected local artifacts copied into a SHA-256-verified bundle.
 
-**Preview is non-mutating.** Artifact files are copied only during explicit Build.
+**Preview is non-mutating.** Artifact files are copied only on explicit Build.
+
+## Documentation for everyone
+
+### Using the product
+
+- [Getting started](docs/GETTING-STARTED.md)
+- [User guide](docs/USER-GUIDE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Privacy model](docs/PRIVACY.md)
+
+### Building / extending it
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Workstation design](docs/WORKSTATION.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+
+### Maintaining / releasing it
+
+- [Release notes](RELEASE_NOTES.md)
+- [Release procedure](docs/RELEASING.md)
+- [Changelog](CHANGELOG.md)
+- [Roadmap](docs/ROADMAP.md)
+
+Historical `docs/TRAIN-*.md` files remain implementation receipts; normal users do not need them.
 
 ## CLI workflows
 
@@ -127,13 +160,6 @@ continuity-bridge capture submit ./capture.json --to-lore
 continuity-bridge capture serve --to-lore --port 43119
 ```
 
-Safe attachments:
-
-```bash
-continuity-bridge attachments chatgpt ./chatgpt-export --json
-continuity-bridge attachments claude ./claude-export.zip --json
-```
-
 Evidence-backed handoff:
 
 ```bash
@@ -146,17 +172,20 @@ continuity-bridge handoff \
   --output ./HANDOFF.md
 ```
 
-## Source installation
+## Source development
 
-Packaged releases do not need this section. For development/source use, install ContinuityBridge and build the same pinned Lore source revision used by the packaged release:
+Packaged users do **not** need this.
 
 ```bash
 git clone https://github.com/acrinym/ContinuityBridge.git
 cd ContinuityBridge
 npm install
-npm link
 pip install ./desktop
+```
 
+Lore-dependent source development uses the same pinned source revision as the packaged 1.0 release:
+
+```bash
 cd ..
 git clone https://github.com/jordanhindo/lore.git
 cd lore
@@ -164,62 +193,51 @@ git checkout 7d10369ef265fb73e539223235979ef2f367bdb8
 npm ci
 npm run build
 npm link
+```
 
+Then:
+
+```bash
 cd ../ContinuityBridge
+npm run check
+npm run smoke
+npm run check:desktop
 continuity-bridge-desktop
 ```
 
-Source builds resolve `lore` from PATH unless `CONTINUITYBRIDGE_LORE` or an explicit saved Lore path is supplied.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development contract.
 
-Focused compatibility entrypoints remain:
-
-```bash
-continuity-bridge-import
-continuity-bridge-connections
-continuity-bridge-handoff
-```
-
-## Privacy and safety model
+## Privacy and data ownership
 
 ContinuityBridge is local-first by design:
 
 - no hosted ContinuityBridge account is required;
 - exports are not uploaded to a ContinuityBridge server;
-- the packaged Lore database remains user-owned and outside the application bundle;
+- Lore data remains under `~/.lore/` by default or configured `LORE_DB`;
+- ContinuityBridge state remains under `~/.continuity-bridge/`;
 - local-memory initialization is explicit;
-- AI-client configuration mutation requires explicit confirmation;
-- live receiver is loopback-only and bearer-authenticated;
+- AI-client configuration changes require explicit confirmation;
+- live capture is loopback-only and bearer-authenticated;
 - browser capture happens only after an explicit click;
 - captured source URLs lose credentials, query strings, and fragments;
 - credential-like message text is redacted by default;
 - provider-private attachment pointers are suppressed;
-- attachment copying requires explicit selection;
-- ContinuityBridge uses Lore's public CLI/push/MCP contracts rather than direct SQLite coupling.
+- attachment copying requires explicit selection.
 
-See [`docs/PRIVACY.md`](docs/PRIVACY.md), [`docs/WORKSTATION.md`](docs/WORKSTATION.md), and [`docs/TRAIN-010.md`](docs/TRAIN-010.md).
+Read [`docs/PRIVACY.md`](docs/PRIVACY.md) and [`SECURITY.md`](SECURITY.md).
 
 ## Update and uninstall
 
-Close ContinuityBridge, replace the old application package with the newer release, and launch again. The packaged runtime can change without replacing user evidence because the database/state directories are outside the application bundle.
+Close ContinuityBridge, replace the old extracted application folder / `.app` with the newer release, and launch again.
 
-To uninstall the application, delete its extracted folder or `.app` bundle. That does not silently delete:
+The application bundle is replaceable. It does not silently delete:
 
 - `~/.lore/` or configured `LORE_DB`;
 - `~/.continuity-bridge/`;
-- portable handoff bundles.
+- handoff bundles saved elsewhere.
 
 Delete those separately only when you intentionally want to remove the associated data.
 
-## Development
+## License
 
-```bash
-npm run check
-npm run smoke
-npm run check:desktop
-```
-
-Desktop packaging is defined by `packaging/continuitybridge.spec` and `.github/workflows/release-desktop.yml`. Normal product PRs use the lightweight CI suite; release-critical packaging/runtime changes additionally exercise Windows, macOS, and Linux package assembly before merge, and tags publish the same verified platform bundles.
-
-## Product roadmap
-
-See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
