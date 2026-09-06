@@ -72,6 +72,17 @@ Attachment inspection and bundling remain confined to the selected ChatGPT/Claud
 
 The generated `attachments.json` manifest contains safe provenance and integrity metadata, not the original remote provider pointer.
 
+## Encrypted portable bundles
+
+ContinuityBridge supports encrypted portable bundles (.cbx files) with the following privacy and security properties:
+
+- **Passphrase protection**: Passphrases are never stored, logged, or passed through command-line arguments. They are collected via stdin (with TTY echo disabled for interactive prompts).
+- **Memory-hard key derivation**: Uses scrypt (N=2^14, r=8, p=1) to derive encryption keys from passphrases.
+- **Authenticated encryption**: AES-256-GCM prevents tampering and detects wrong passphrases.
+- **Per-file integrity**: Each file in the bundle has SHA-256 verification during restore.
+- **No passphrase recovery**: There is no mechanism to recover lost passphrases—the encrypted data is irretrievable without the correct passphrase.
+- **Secure path validation**: Restore operations validate all paths to prevent traversal attacks, symlink exploits, and invalid filenames.
+
 ## Desktop settings
 
 The Workstation stores convenience preferences under `~/.continuity-bridge/`. These settings do not contain conversation previews or copied attachment contents. Repository-link metadata contains coordinates and Lore IDs rather than message bodies. The Workstation does not save the live receiver token in its desktop settings; the browser companion's separate extension-local token storage is described above.
